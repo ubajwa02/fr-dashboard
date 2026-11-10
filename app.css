@@ -1016,3 +1016,39 @@ main { max-width: 1240px; padding-top: 32px; }
   .home-two { gap: 32px; margin-top: 32px; }
 }
 .vb-good-soft { border: 0 !important; background: var(--good-soft-bg) !important; box-shadow: inset 0 0 0 1px var(--good-line) !important; }
+
+/* ======================================================================== polish: header that never overlaps content
+   The bar grows to fit (min 52px) instead of a fixed height, so a wrapped row can never spill over the page. */
+.topbar { height: auto !important; min-height: 52px; flex-wrap: nowrap; gap: 20px; padding: 0 max(20px, env(safe-area-inset-right)) 0 max(20px, env(safe-area-inset-left)); }
+.brand-link { display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; min-height: 44px; }
+.mark { width: 22px; height: 22px; color: var(--text); flex: none; }
+.brand-name { text-transform: uppercase; font-weight: 600; font-size: 13px; letter-spacing: .16em; }
+#theme { width: 44px; height: 44px; flex: 0 0 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+@media (min-width: 641px) {
+  .topbar { flex-wrap: nowrap; }
+  .topbar .tabs { order: 0; flex: 1 1 auto; flex-basis: auto; overflow-x: auto; scrollbar-width: none; }
+  .jump-wrap { order: 0; margin-left: auto; flex: 0 1 220px; } #jump { width: 100%; }
+  .status { order: 0; margin-left: 0; }
+}
+@media (min-width: 641px) and (max-width: 1280px) { #updated, #countdown { display: none; } }
+@media (min-width: 641px) and (max-width: 960px) { .mood, .brand-name { display: none; } .jump-wrap { flex-basis: 150px; } }
+@media (max-width: 640px) {
+  .topbar { flex-wrap: wrap; row-gap: 8px; padding-top: max(8px, env(safe-area-inset-top)); padding-bottom: 8px; }
+  .brand { order: 1; flex: 1 1 auto; min-width: 0; }
+  .status { order: 2; margin-left: auto; gap: 8px; } .status #updated, .status #countdown { display: none; }
+  .jump-wrap { order: 3; flex: 1 1 100%; }
+}
+/* tonight's verdict, structured */
+.vl-kicker { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.verdict-line .vl-text { font-size: var(--t-26); max-width: 34ch; }
+.vl-lines { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 0; max-width: 760px; }
+.vl-lines li { display: grid; grid-template-columns: 72px auto 1fr; align-items: center; gap: 14px; padding: 10px 0; border-top: 1px solid var(--line); }
+.vl-lines li:last-child { border-bottom: 1px solid var(--line); }
+.vl-t { font-family: var(--mono); font-weight: 600; letter-spacing: .02em; color: var(--text); text-decoration: none; }
+.vl-r { color: var(--muted); }
+.vl-src { margin: 0; font-size: 13px; color: var(--faint); }
+@media (max-width: 640px) { .vl-lines li { grid-template-columns: 64px auto; row-gap: 4px; } .vl-r { grid-column: 1 / -1; } .verdict-line .vl-text { font-size: var(--t-20); } }
+@media (min-width: 641px) and (max-width: 1280px) { .brand-name { display: none; } .jump-wrap { flex: 0 1 170px; } .topbar .tabs a { margin: 0 8px; } .topbar { gap: 16px; } }
+/* the top bar keeps every tab visible: the run timestamps live in the footer area on narrower screens */
+@media (min-width: 641px) and (max-width: 1679px) { #updated, #countdown { display: none; } }
+.vl-lines .vb { justify-self: start; }

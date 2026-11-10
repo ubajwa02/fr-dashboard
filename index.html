@@ -12,20 +12,20 @@
 <meta name="format-detection" content="telephone=no">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
+<link rel="icon" type="image/svg+xml" href="icons/mark.svg">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <title>Fundamentalist</title>
-<link rel="stylesheet" href="app.css?v=b33e2d102d4b">
+<link rel="stylesheet" href="app.css?v=4c3c11b5173e">
 <script>
   try { const t = localStorage.getItem("fr-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
 </script>
-<script>window.FR_STATIC = {"asof": "2026-11-10 21:21 UTC"};</script>
+<script>window.FR_STATIC = {"asof": "2026-11-10 22:25 UTC"};</script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
-<div class="snapshot-banner" role="note">Read-only snapshot, updated 2026-11-10 21:21 UTC. Research, not advice. Scores, news and prices do not update until the next snapshot.</div>
 <header class="topbar">
   <div class="brand" aria-label="Fundamentalist">
-    <span class="logo" aria-hidden="true">◆</span><span class="brand-name">Fundamentalist</span>
+    <a href="#/command" class="brand-link" aria-label="Fundamentalist home"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="4.2" height="18" rx="1.2" fill="currentColor"/><rect x="9.6" y="3" width="9.6" height="4.2" rx="1.2" fill="currentColor"/><rect x="9.6" y="10" width="6" height="4.2" rx="1.2" fill="currentColor"/><circle cx="17.2" cy="18.6" r="2.4" fill="var(--accent)"/></svg><span class="brand-name">Fundamentalist</span></a>
   </div>
   <nav class="tabs" aria-label="Views">
     <a href="#/command" data-view="command">Home</a>
@@ -53,18 +53,18 @@
 </aside>
 <div class="scrim" id="scrim" hidden></div>
 <nav class="bottom-tabs" aria-label="Main views">
-  <a href="#/command" data-view="command"><span aria-hidden="true">◆</span>Home</a>
+  <a href="#/command" data-view="command"><span aria-hidden="true">⌂</span>Home</a>
   <a href="#/stocks" data-view="stocks"><span aria-hidden="true">▤</span>Stocks</a>
   <a href="#/ideas" data-view="ideas"><span aria-hidden="true">✦</span>Ideas</a>
   <a href="#/market" data-view="market"><span aria-hidden="true">↗</span>Market</a>
   <a href="#/more" data-view="more"><span aria-hidden="true">⋯</span>More</a>
 </nav>
 <footer class="foot">
-  <span id="disclaimer"></span>
+  <span id="disclaimer">Research only, not advice.</span>
   <span class="local-only"><a href="#/ops">Research Operations</a> · <a href="#/settings">Settings</a></span>
 </footer>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js" defer></script>
-<script src="app.js?v=b33e2d102d4b"></script>
+<script src="app.js?v=4c3c11b5173e"></script>
 </body>
 </html>

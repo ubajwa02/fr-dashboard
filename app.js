@@ -86,7 +86,7 @@ function renderChrome(h) {
   $("#mood-pill").innerHTML = `<span aria-hidden="true">●</span> ${esc(h.regime || "—")}`;
   $("#mood-pill").title = h.mood;
   $("#updated").textContent = "Updated " + dateFmt(h.updated);
-  $("#disclaimer").textContent = h.disclaimer;
+  $("#disclaimer").textContent = "Research only, not advice.";
   $("#strip").innerHTML = h.mine.map((c) => `<button class="tick" data-t="${esc(c.ticker)}" aria-label="${esc(c.ticker)} ${money(c.price)} ${pct(c.change_1d)}">
     <span class="t">${esc(c.ticker)}</span><span class="p num">${money(c.price)}</span><span class="c num ${dirCls(c.change_1d)}">${pct(c.change_1d)}</span>${spark(c.spark, 56, 18)}</button>`).join("");
   document.querySelectorAll(".tick").forEach((b) => b.addEventListener("click", () => openStock(b.dataset.t)));
@@ -1319,7 +1319,8 @@ function synthesisHtml(rep, st, full = true) {
   return `<section class="cc-sec syn" aria-label="Committee conclusion">
     <h2>Committee Conclusion</h2>
     <p class="ai-label">${esc(rep.label)}. Written ${esc((rep.created_at || "").slice(0, 16).replace("T", " "))} UTC from the ${esc(fmtDay(rep.asof))} data${rep.model ? `; model ${esc(rep.model)}` : ""}.${stale ? ` <b>Synthesis not available today; this is the latest report.</b>` : ""}</p>
-    ${(P.bottom_line || []).length ? `<ol class="syn-bl">${P.bottom_line.map((b) => `<li>${esc(b)}</li>`).join("")}</ol>` : ""}
+    ${P.headline_short ? `<p class="vl-text">${esc(P.headline_short)}</p>${(P.lines || []).length ? `<ul class="vl-lines">${P.lines.map((l) => `<li><a href="#" data-open="${esc(l.ticker)}" class="vl-t">${esc(l.ticker)}</a>${vBadge(l.verdict || "—", (l.verdict || "").startsWith("Buy below") ? "Buy below" : l.verdict)}<span class="vl-r">${esc(l.reason)}</span></li>`).join("")}</ul>` : ""}` :
+      (P.bottom_line || []).length ? `<ol class="syn-bl">${P.bottom_line.map((b) => `<li>${esc(b)}</li>`).join("")}</ol>` : ""}
     ${full && M.conclusion ? `<h3>Market</h3><p>${esc(M.conclusion)}</p>${(M.arguments || []).length ? `<ul>${M.arguments.map((a) => `<li>${esc(a)}</li>`).join("")}</ul>` : ""}${M.change_mind ? `<p><b>What would change it:</b> ${esc(M.change_mind)}</p>` : ""}` : ""}
     ${full && D.ticker ? `<h3>Deep Dive: ${esc(D.ticker)}</h3><dl class="rec-f"><div><dt>Case For</dt><dd>${esc(D.case_for)}</dd></div><div><dt>Case Against</dt><dd>${esc(D.case_against)}</dd></div><div><dt>What Decides It</dt><dd>${esc(D.decides)}</dd></div></dl>` : ""}
     <div class="tbl-wrap"><table class="sortable syn-tbl"><thead><tr><th>Stock</th><th>Long-Term</th><th>Swing</th><th>Why</th><th>What Would Change It</th><th>Rule Vote</th></tr></thead><tbody>
@@ -1418,6 +1419,17 @@ const hashParam = (k) => new URLSearchParams(location.hash.split("?")[1] || "").
 const segCtl = (view, key, opts, cur) => `<nav class="seg" aria-label="Views">${opts.map(([v, n]) => `<a href="#/${view}?${key}=${v}" class="${v === cur ? "on" : ""}" aria-current="${v === cur ? "page" : "false"}">${esc(n)}</a>`).join("")}</nav>`;
 const pageHead = (title, sub) => `<div class="p3-head"><h1>${esc(title)}</h1>${sub ? `<p class="faint">${esc(sub)}</p>` : ""}</div>`;
 
+/* Tonight's verdict, structured: a kicker, one plain sentence, then one line per key stock. */
+function verdictBlock(v, report) {
+  if (!v) return "";
+  const kind = (l) => (l.startsWith("Buy below") ? "Buy below" : l);
+  return `<section class="verdict-line" aria-label="Tonight's verdict">
+    <p class="vl-kicker">${esc(v.kicker)}</p>
+    <p class="vl-text">${esc(v.sentence)}</p>
+    <ul class="vl-lines">${(v.lines || []).map((l) => `<li><a href="#" data-open="${esc(l.ticker)}" class="vl-t">${esc(l.ticker)}</a>${vBadge(l.label, kind(l.label))}<span class="vl-r">${esc(l.reason)}</span></li>`).join("")}</ul>
+    ${report ? `<p class="vl-src">${esc(report.label)}. <a href="#/reports">Full report</a></p>` : ""}
+  </section>`;
+}
 async function viewHome(main) {
   main.innerHTML = skel();
   const d = await load("/api/board");
@@ -1432,11 +1444,7 @@ async function viewHome(main) {
     ${M.breadth != null ? `<div class="mk-tile"><div class="mk-h"><b>Breadth</b>${vBadge(M.breadth >= 60 ? "Broad" : M.breadth >= 40 ? "Mixed" : "Narrow", M.breadth >= 60 ? "Enter" : M.breadth >= 40 ? "Wait" : "Avoid")}</div>
       <div class="mk-v"><span class="num">${M.breadth}%</span><span class="faint">above 50-day</span></div><div class="br-track"><span style="width:${M.breadth}%"></span></div></div>` : ""}
   </section>
-  <section class="verdict-line" aria-label="Evening verdict">
-    <p class="vl-text">${esc(d.headline)}</p>
-    <div class="vl-keys">${(d.key_calls || []).map((k) => `<a href="#" data-open="${esc(k.ticker)}" class="vl-key"><b>${esc(k.ticker)}</b>${vBadge(k.label, k.label.startsWith("Buy below") ? "Buy below" : k.label)}</a>`).join("")}</div>
-    ${d.report ? `<details class="vl-more"><summary>About this verdict</summary><p class="faint">${esc(d.report.label)}. Written ${esc((d.report.created_at || "").slice(0, 16).replace("T", " "))} UTC. Full report on <a href="#/briefing">Briefing</a>.</p></details>` : ""}
-  </section>
+  ${verdictBlock(d.verdict, d.report)}
   <section class="board" aria-label="Verdict Board">
     <div class="board-h"><h2>Verdict Board</h2><span class="faint">Long-term: is it a good business at a good price? Swing: the next few weeks. Data from the ${esc(fmtDay(d.asof))} close.</span></div>
     ${boardHtml(rows)}
