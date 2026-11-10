@@ -1,6 +1,6 @@
 # Public manifest: Fundamental Researcher snapshot
 
-Read-only snapshot, generated 2026-11-10 05:39 UTC. Research, not advice.
+Read-only snapshot, generated 2026-11-10 05:46 UTC. Research, not advice.
 
 ## What is in this site
 
@@ -13,7 +13,7 @@ Read-only snapshot, generated 2026-11-10 05:39 UTC. Research, not advice.
 | `data/brief/` | 50 | 274 KB |
 | `data/prices/` | 50 | 1,678 KB |
 | `data/report/` | 2 | 8 KB |
-| `data/stock/` | 50 | 1,184 KB |
+| `data/stock/` | 50 | 1,181 KB |
 | `index.html` | 1 | 3 KB |
 | **Total** | **166** | **3.9 MB** |
 
