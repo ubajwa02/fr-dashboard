@@ -601,3 +601,33 @@ details.fold[open] > summary { border-bottom: 1px solid var(--line); margin-bott
 .ck-todo .k { font-weight: 600; white-space: nowrap; color: var(--accent); font-size: 16px; } .ck-todo .v { font-size: 17px; color: var(--text); line-height: 1.5; }
 .ck-rules { font-size: 14px; color: var(--muted); margin-top: 10px; }
 @media (max-width: 760px) { .states { grid-template-columns: 1fr; } .ck-todo { flex-direction: column; gap: 2px; } }
+
+/* interactive analysis chart */
+.ta { margin: 12px 0; }
+.ta-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; } .ta-bar .grp { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--r-sm); background: var(--panel2); }
+.ta-bar .tf, .ta-bar .tg { font: inherit; font-size: 13px; border: 0; background: none; color: var(--muted); padding: 5px 10px; border-radius: 6px; cursor: pointer; min-height: 32px; }
+.ta-bar .tf.on { background: var(--accent-soft); color: var(--text); } .ta-bar .tg { border: 1px solid var(--line); }
+.ta-bar .tg.on { border-color: var(--accent); color: var(--text); background: var(--accent-soft); } .ta-bar .sep { width: 1px; height: 20px; background: var(--line); margin: 0 4px; }
+.ta-readout { font-size: 13px; color: var(--muted); min-height: 22px; display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 2px 0 6px; font-variant-numeric: tabular-nums; } .ta-readout b { color: var(--text); }
+.ta-main .lc { height: 380px; } .ta-main .lc-plot { position: relative; }
+.ta-bands { position: absolute; inset: 0 0 0 0; pointer-events: none; z-index: 2; right: 64px; }
+.ta-bands .band { position: absolute; left: 0; right: 0; background: color-mix(in srgb, var(--muted) 12%, transparent); border-top: 1px dashed var(--line2); border-bottom: 1px dashed var(--line2); transition: background .25s; }
+.ta-bands .band.above { background: color-mix(in srgb, var(--down) 9%, transparent); } .ta-bands .band.below { background: color-mix(in srgb, var(--up) 9%, transparent); }
+.ta-bands .band.hl { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+button.lc-l { background: none; border: 0; padding: 0; text-align: left; cursor: pointer; font: inherit; font-size: 12.5px; color: var(--muted); }
+button.lc-l:hover, button.lc-l:focus-visible { color: var(--text); }
+.ta-pane { position: relative; border-top: 1px solid var(--line); margin-right: 132px; } .ta-pane .pl { position: absolute; left: 6px; top: 2px; z-index: 3; font-size: 12.5px; color: var(--muted); background: color-mix(in srgb, var(--panel) 80%, transparent); padding: 0 4px; border-radius: 4px; }
+.ta-pane .pc { height: 120px; }
+.ta-explain { margin: 8px 0; padding: 10px 14px; border-radius: var(--r-sm); background: var(--accent-soft); display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
+.ta-explain p { margin: 0; font-size: 15px; line-height: 1.5; }
+.ta-read { margin: 12px 0; } .ta-read h3 { font-size: var(--fs-h3); margin: 0 0 6px; }
+.ta-read ul { margin: 0; padding-left: 18px; } .ta-read li { margin: 6px 0; } .ta-read .lnk { text-align: left; color: var(--text); font-size: 15px; line-height: 1.5; text-decoration: underline dotted var(--line2); text-underline-offset: 4px; }
+.ta-read .lnk:hover { text-decoration-color: var(--accent); }
+.ta-facts { display: grid; gap: 6px; margin: 10px 0 0; } .ta-facts div { display: grid; grid-template-columns: 150px 1fr; gap: 10px; font-size: 14px; } .ta-facts dt { color: var(--muted); } .ta-facts dd { margin: 0; line-height: 1.5; }
+@media (max-width: 760px) { .ta-main .lc { height: 320px; } .ta-pane { margin-right: 104px; } .ta-facts div { grid-template-columns: 1fr; gap: 0; } .ta-bands { right: 56px; } }
+.ta-read .lnk { display: inline; padding: 0; background: none; border: 0; cursor: pointer; }
+.ta-main .lc { grid-template-columns: 1fr 176px; } .ta-pane { margin-right: 176px; } .ta-bands { right: 64px; }
+.daily { grid-template-columns: 1fr; }
+@media (max-width: 760px) { .ta-main .lc { grid-template-columns: 1fr 104px; } .ta-pane { margin-right: 104px; } }
+button.lc-l, .lc-l { display: block; height: 16px; line-height: 16px; }
+.ta-pane { margin-right: 177px; } @media (max-width: 760px) { .ta-pane { margin-right: 105px; } }

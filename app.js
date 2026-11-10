@@ -44,6 +44,7 @@ function staticPath(path) {
   const u = new URL(path, "http://x"), t = (u.searchParams.get("t") || "").toUpperCase().replace(/[^A-Z0-9.-]/g, "");
   if (u.pathname === "/api/stock") return `data/stock/${t}.json`;
   if (u.pathname === "/api/brief") return `data/brief/${t}.json`;
+  if (u.pathname === "/api/ta") return `data/ta/${t}.json`;
   if (u.pathname === "/api/report") return `data/report/${(u.searchParams.get("id") || "").replace(/[^a-z0-9_-]/gi, "")}.json`;
   if (u.pathname.startsWith("/api/prices/")) return `data/prices/${u.pathname.split("/").pop().toUpperCase().replace(/[^A-Z0-9.-]/g, "")}.json`;
   return `data/${u.pathname.replace("/api/", "")}.json`;
@@ -730,13 +731,177 @@ async function drawMini(el, d) {
     { color: v("--series-1"), averages: [["sma50", v("--series-1")], ["sma200", v("--series-2")]] });
 }
 
+/* ------------------------------------------------------------------ interactive analysis chart (fr/ta.py) */
+/* Candles or line, volume, 20/50/200-day averages, support/resistance zones as shaded bands, regression channel,
+   Bollinger bands, markers (earnings, big news, structure breaks), and RSI / MACD / relative-strength panes.
+   Daily or weekly bars, 1M to 5Y. Choices persist per browser. Zone labels sit in the gutter, never on the plot. */
+const TA_DEFAULT = { tf: "6M", bars: "D", style: "candles", ma: true, zones: true, channel: false, bb: false, marks: true, vol: true, rsi: false, macd: false, rs: false };
+function taPrefs() {
+  if (TA_ALL) return { ...TA_DEFAULT, channel: true, bb: true, rsi: true, macd: true, rs: true };   // for screenshots; not saved
+  try { return { ...TA_DEFAULT, ...JSON.parse(localStorage.getItem("fr-chart") || "{}") }; } catch (e) { return { ...TA_DEFAULT }; }
+}
+function taSave(p) { try { localStorage.setItem("fr-chart", JSON.stringify(p)); } catch (e) { /* private mode */ } }
+const TA_ALL = new URLSearchParams(location.search).get("ta") === "all";   // read at load: the stock page rewrites the address
+const TF_DAYS = { "1M": 21, "3M": 63, "6M": 126, "1Y": 252, "5Y": 1300 };
+
+function taRows(a, weekly) {
+  if (weekly) return (a.weekly_bars || []).map((b) => ({ ...b }));
+  const s = a.series, out = [];
+  for (let i = 0; i < s.time.length; i++) out.push({ time: s.time[i], open: s.open[i], high: s.high[i], low: s.low[i], close: s.close[i], volume: s.volume[i],
+    sma20: s.sma20[i], sma50: s.sma50[i], sma200: s.sma200[i], bbu: s.bb_upper[i], bbl: s.bb_lower[i], rsi: s.rsi[i], macd: s.macd[i], sig: s.macd_signal[i], hist: s.macd_hist[i] });
+  return out;
+}
+function smaArr(rows, n) { let sum = 0; return rows.map((r, i) => { sum += r.close; if (i >= n) sum -= rows[i - n].close; return i >= n - 1 ? sum / n : null; }); }
+
+async function taChart(host, t, extraLevels) {
+  if (!window.LightweightCharts) { host.innerHTML = `<div class="empty">Chart library unavailable (offline?).</div>`; return null; }
+  host.innerHTML = `<div class="ta"><div class="skeleton" style="height:360px;border-radius:10px"></div></div>`;
+  let a;
+  try { a = await load(`/api/ta?t=${encodeURIComponent(t)}`); } catch (e) { return null; }
+  if (!a || a.error || !a.series) return null;
+  const P = taPrefs(), css = getComputedStyle(document.documentElement), v = (k) => css.getPropertyValue(k).trim();
+  const tog = (k, label) => `<button class="tg ${P[k] ? "on" : ""}" data-k="${k}" aria-pressed="${!!P[k]}">${label}</button>`;
+  host.innerHTML = `<div class="ta">
+    <div class="ta-bar" role="toolbar" aria-label="Chart controls">
+      <span class="grp">${Object.keys(TF_DAYS).map((r) => `<button class="tf ${P.tf === r ? "on" : ""}" data-tf="${r}">${r}</button>`).join("")}</span>
+      <span class="grp"><button class="tf ${P.bars === "D" ? "on" : ""}" data-bars="D">Daily</button><button class="tf ${P.bars === "W" ? "on" : ""}" data-bars="W">Weekly</button></span>
+      <span class="grp"><button class="tf ${P.style === "candles" ? "on" : ""}" data-style="candles">Candles</button><button class="tf ${P.style === "line" ? "on" : ""}" data-style="line">Line</button></span>
+      <button class="tf" data-reset="1" title="Reset zoom">Reset</button>
+    </div>
+    <div class="ta-bar small" role="toolbar" aria-label="Overlays and panes">${tog("ma", "Averages")}${tog("zones", "Zones")}${tog("channel", "Channel")}${tog("bb", "Bollinger")}${tog("marks", "Markers")}
+      <span class="sep"></span>${tog("vol", "Volume")}${tog("rsi", "RSI")}${tog("macd", "MACD")}${tog("rs", "Relative strength")}</div>
+    <div class="ta-readout" aria-live="polite"></div>
+    <div class="ta-main"><div class="lc"><div class="lc-plot"><div class="ta-bands"></div></div><div class="lc-gutter"><svg class="lc-lead"></svg></div></div></div>
+    <div class="ta-panes"></div>
+    <div class="ta-explain" hidden></div>
+    <p class="faint small">Daily bars from stored end-of-day prices (no intraday data). Drawn with lightweight-charts (TradingView).</p></div>`;
+  const root = host.querySelector(".ta"), plot = root.querySelector(".lc-plot"), gut = root.querySelector(".lc-gutter"), svg = gut.querySelector("svg"),
+    bands = root.querySelector(".ta-bands"), panes = root.querySelector(".ta-panes"), readout = root.querySelector(".ta-readout"), explain = root.querySelector(".ta-explain");
+  let charts = [], main = null, ser = null, rows = [], zoneItems = [];
+  const fmtV = (x) => x >= 1e9 ? (x / 1e9).toFixed(2) + "B" : x >= 1e6 ? (x / 1e6).toFixed(1) + "M" : x >= 1e3 ? (x / 1e3).toFixed(0) + "K" : String(x);
+  const zoneExplain = (z) => `${z.side === "above" ? "Resistance" : z.side === "below" ? "Support" : "Zone at the price"}, $${z.low.toFixed(2)}–$${z.high.toFixed(2)}: price turned here ${z.touches} times, most recently on ${fmtDay(z.last_touch)}${z.flipped ? "; it has acted as both support and resistance (a flipped level)" : ""}. ${z.side === "above" ? `A close above $${z.high.toFixed(2)} would clear it.` : z.side === "below" ? `A close below $${z.low.toFixed(2)} would break it.` : "Price is trading inside it now."}`;
+
+  function build() {
+    charts.forEach((c) => c.remove()); charts = [];
+    panes.innerHTML = ""; bands.innerHTML = "";
+    const weekly = P.bars === "W";
+    rows = taRows(a, weekly);
+    if (weekly) { const m10 = smaArr(rows, 10), m40 = smaArr(rows, 40); rows.forEach((r, i) => { r.sma50 = m10[i]; r.sma200 = m40[i]; r.sma20 = null; }); }
+    main = LightweightCharts.createChart(plot, { ...chartOpts(plot), height: 380, rightPriceScale: { borderColor: v("--line"), minimumWidth: 72, scaleMargins: { top: 0.08, bottom: P.vol ? 0.24 : 0.06 } },
+      timeScale: { borderColor: v("--line"), rightOffset: 4 }, crosshair: { mode: 1 } });
+    main.__el = plot; charts.push(main);
+    if (P.style === "line") { ser = main.addLineSeries({ color: v("--series-1"), lineWidth: 2, priceLineVisible: false }); ser.setData(rows.map((r) => ({ time: r.time, value: r.close }))); }
+    else { ser = main.addCandlestickSeries({ upColor: v("--up"), downColor: v("--down"), wickUpColor: v("--up"), wickDownColor: v("--down"), borderVisible: false, priceLineVisible: false });
+      ser.setData(rows.map((r) => ({ time: r.time, open: r.open, high: r.high, low: r.low, close: r.close }))); }
+    if (P.vol) { const vs = main.addHistogramSeries({ priceScaleId: "vol", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false });
+      main.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+      vs.setData(rows.map((r) => ({ time: r.time, value: r.volume, color: r.close >= r.open ? v("--up-soft") : v("--down-soft") }))); }
+    if (P.ma) [[weekly ? null : "sma20", v("--series-3")], ["sma50", v("--series-1")], ["sma200", v("--series-2")]].forEach(([k, c]) => k &&
+      main.addLineSeries({ color: c, lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }).setData(rows.filter((r) => r[k] != null).map((r) => ({ time: r.time, value: r[k] }))));
+    if (P.bb && !weekly) ["bbu", "bbl"].forEach((k) => main.addLineSeries({ color: v("--muted"), lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
+      .setData(rows.filter((r) => r[k] != null).map((r) => ({ time: r.time, value: r[k] }))));
+    const ch = a.series.channel;
+    if (P.channel && ch && !weekly) { const idx0 = rows.findIndex((r) => r.time === ch.start), n = rows.length - 1 - idx0;
+      if (idx0 >= 0) [0, 1, -1].forEach((k) => main.addLineSeries({ color: k ? v("--muted") : v("--accent"), lineWidth: 1, lineStyle: k ? 2 : 0, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
+        .setData(rows.slice(idx0).map((r, i) => ({ time: r.time, value: ch.mid_start + (ch.mid_end - ch.mid_start) * (i / Math.max(1, n)) + k * ch.band })))); }
+    if (P.marks) {
+      const shape = { earnings: ["circle", v("--accent"), "E"], news: ["square", v("--warn"), "N"], break: ["arrowDown", v("--down"), "Break"] };
+      const tset = new Set(rows.map((r) => r.time)), snap = (d) => { if (tset.has(d)) return d; const r = rows.find((x) => x.time >= d); return r ? r.time : null; };
+      const mk = (a.markers || []).map((m) => { const tm = snap(m.time), sh = shape[m.kind] || shape.news;
+        return tm && { time: tm, position: m.kind === "break" ? "aboveBar" : "belowBar", shape: m.kind === "break" && /up/.test(m.text) ? "arrowUp" : sh[0], color: m.kind === "break" && /up/.test(m.text) ? v("--up") : sh[1], text: sh[2] }; }).filter(Boolean);
+      const seen = new Set(); ser.setMarkers(mk.filter((m) => { const k = m.time + m.text; if (seen.has(k)) return false; seen.add(k); return true; }).sort((x, y) => (x.time < y.time ? -1 : 1)));
+    }
+    // panes
+    const pane = (label, fill) => { const d = document.createElement("div"); d.className = "ta-pane"; d.innerHTML = `<span class="pl">${label}</span><div class="pc"></div>`; panes.appendChild(d);
+      const el = d.querySelector(".pc");
+      const c = LightweightCharts.createChart(el, { ...chartOpts(el), height: 120, rightPriceScale: { borderColor: v("--line"), minimumWidth: 72 }, timeScale: { visible: false }, crosshair: { mode: 1 } });
+      c.__el = el; charts.push(c); fill(c); return c; };
+    if (P.rsi && !weekly) pane("RSI (14): above 70 stretched up, below 30 stretched down", (c) => { const s = c.addLineSeries({ color: v("--series-2"), lineWidth: 1.5, priceLineVisible: false });
+      s.setData(rows.filter((r) => r.rsi != null).map((r) => ({ time: r.time, value: r.rsi })));
+      [70, 30].forEach((y) => s.createPriceLine({ price: y, color: v("--line2"), lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "" })); });
+    if (P.macd && !weekly) pane("MACD: line vs signal; bars show the gap", (c) => {
+      c.addHistogramSeries({ priceLineVisible: false, lastValueVisible: false }).setData(rows.filter((r) => r.hist != null).map((r) => ({ time: r.time, value: r.hist, color: r.hist >= 0 ? v("--up-soft") : v("--down-soft") })));
+      c.addLineSeries({ color: v("--series-1"), lineWidth: 1.5, priceLineVisible: false }).setData(rows.filter((r) => r.macd != null).map((r) => ({ time: r.time, value: r.macd })));
+      c.addLineSeries({ color: v("--series-3"), lineWidth: 1, priceLineVisible: false }).setData(rows.filter((r) => r.sig != null).map((r) => ({ time: r.time, value: r.sig }))); });
+    if (P.rs && a.rs && !weekly) pane(`Relative strength vs ${a.rs.vs} (rising = outperforming)`, (c) => c.addLineSeries({ color: v("--accent"), lineWidth: 1.5, priceLineVisible: false })
+      .setData(a.rs.series.filter((x) => x.time >= rows[0].time)));
+    // sync time scales and crosshairs
+    let syncing = false;                                              // panes follow the main chart by time (their series start on different bars)
+    main.timeScale().subscribeVisibleTimeRangeChange((r) => { if (!r || syncing) return; syncing = true; charts.forEach((o) => o !== main && o.timeScale().setVisibleRange(r)); syncing = false; });
+    main.subscribeCrosshairMove((pm) => {
+      const r = pm && pm.time ? rows.find((x) => x.time === pm.time) : null;
+      charts.forEach((o) => o !== main && pm && pm.time && o.setCrosshairPosition && o.setCrosshairPosition(NaN, pm.time, o.__s || null));
+      readout.innerHTML = r ? readoutHtml(r) : readoutHtml(rows[rows.length - 1]);
+    });
+    readout.innerHTML = readoutHtml(rows[rows.length - 1]);
+    setTf(P.tf);
+    main.timeScale().subscribeVisibleLogicalRangeChange(() => requestAnimationFrame(drawZones));
+    new ResizeObserver(() => { charts.forEach((c) => c.applyOptions({ width: c.__el.clientWidth })); requestAnimationFrame(drawZones); }).observe(plot);
+    requestAnimationFrame(drawZones);
+  }
+  function readoutHtml(r) {
+    const i = rows.indexOf(r), prev = i > 0 ? rows[i - 1].close : null, chg = prev ? (r.close / prev - 1) * 100 : null;
+    const zs = a.zones || [], near = zs.length ? zs.reduce((b, z) => (Math.abs(z.mid - r.close) < Math.abs(b.mid - r.close) ? z : b)) : null;
+    return `<b>${esc(fmtDay(r.time))}</b> <span>O ${r.open.toFixed(2)}</span> <span>H ${r.high.toFixed(2)}</span> <span>L ${r.low.toFixed(2)}</span> <span>C ${r.close.toFixed(2)}</span>
+      ${chg != null ? `<span class="${dirCls(chg)}">${pct(chg)}</span>` : ""} <span>Vol ${fmtV(r.volume)}</span>${near ? ` <span class="faint">nearest zone ${near.low.toFixed(2)}–${near.high.toFixed(2)} (${((near.mid / r.close - 1) * 100).toFixed(1)}%)</span>` : ""}`;
+  }
+  function drawZones() {
+    bands.innerHTML = ""; gut.querySelectorAll(".lc-l").forEach((e) => e.remove()); svg.innerHTML = "";
+    if (!ser) return;
+    const h = plot.clientHeight, last = a.last;
+    const items = [];
+    if (P.zones) (a.zones || []).forEach((z, zi) => { const y1 = ser.priceToCoordinate(z.high), y2 = ser.priceToCoordinate(z.low); if (y1 == null || y2 == null) return;
+      const b = document.createElement("div"); b.className = `band ${z.side}`; b.dataset.z = zi; b.style.top = `${Math.min(y1, y2)}px`; b.style.height = `${Math.max(3, Math.abs(y2 - y1))}px`; bands.appendChild(b);
+      items.push({ y: (y1 + y2) / 2, name: `${z.side === "above" ? "Resistance" : z.side === "below" ? "Support" : "Zone"} ${z.mid.toFixed(2)}`, price: z.mid, zi, z }); });
+    (extraLevels || []).forEach((l) => { const y = ser.priceToCoordinate(l.price); if (y != null) items.push({ y, name: `${l.name} ${l.price.toFixed(2)}`, price: l.price, l }); });
+    const placed = placeLabels(items.slice(0, innerWidth < 600 ? 4 : 6), h);
+    svg.setAttribute("viewBox", `0 0 14 ${h}`); svg.setAttribute("height", h);
+    svg.innerHTML = placed.map((i) => `<path d="M0 ${i.y.toFixed(1)} L6 ${i.y.toFixed(1)} L12 ${i.ly.toFixed(1)}" />`).join("");
+    placed.forEach((i) => { const e = document.createElement("button"); e.className = "lc-l " + (i.price >= last ? "a" : "b"); e.style.top = `${i.ly}px`; e.textContent = innerWidth < 600 ? i.name.replace(/ [\d.]+$/, "") : i.name;
+      e.addEventListener("click", () => showExplain(i.z ? zoneExplain(i.z) : i.l.explain || i.name, i.zi)); gut.appendChild(e); });
+  }
+  function showExplain(text, zi) {
+    explain.hidden = false; explain.innerHTML = `<p>${esc(text)}</p><button class="tf" data-close="1">Close</button>`;
+    bands.querySelectorAll(".band").forEach((b) => b.classList.toggle("hl", zi != null && b.dataset.z === String(zi)));
+    explain.querySelector("[data-close]").addEventListener("click", () => { explain.hidden = true; bands.querySelectorAll(".band").forEach((b) => b.classList.remove("hl")); });
+  }
+  function setTf(tf) { const n = Math.ceil(TF_DAYS[tf] / (P.bars === "W" ? 5 : 1)); main.timeScale().setVisibleLogicalRange({ from: Math.max(0, rows.length - n), to: rows.length + 3 }); }
+  root.querySelectorAll("[data-tf]").forEach((b) => b.addEventListener("click", () => { P.tf = b.dataset.tf; taSave(P); root.querySelectorAll("[data-tf]").forEach((x) => x.classList.toggle("on", x === b)); setTf(P.tf); }));
+  root.querySelectorAll("[data-bars],[data-style]").forEach((b) => b.addEventListener("click", () => {
+    if (b.dataset.bars) P.bars = b.dataset.bars; else P.style = b.dataset.style; taSave(P);
+    root.querySelectorAll(b.dataset.bars ? "[data-bars]" : "[data-style]").forEach((x) => x.classList.toggle("on", x === b)); build(); }));
+  root.querySelector("[data-reset]").addEventListener("click", () => setTf(P.tf));
+  root.querySelectorAll(".tg").forEach((b) => b.addEventListener("click", () => { P[b.dataset.k] = !P[b.dataset.k]; taSave(P); b.classList.toggle("on", P[b.dataset.k]); b.setAttribute("aria-pressed", String(P[b.dataset.k])); build(); }));
+  build();
+  host.__labels = () => [...gut.querySelectorAll(".lc-l")].map((e) => e.getBoundingClientRect());
+  return { a, focus: (ref) => {
+    const want = { zones: "zones", channel: "channel", momentum: "rsi", volume: "vol", structure: "marks" }[ref];
+    if (want && !P[want]) { P[want] = true; taSave(P); root.querySelector(`.tg[data-k="${want}"]`)?.classList.add("on"); build(); }
+    root.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+    if (ref === "zones") bands.querySelectorAll(".band").forEach((b) => { b.classList.add("hl"); setTimeout(() => b.classList.remove("hl"), 1600); });
+  } };
+}
+function taReadHtml(a) {
+  if (!a || !a.read) return "";
+  const wk = a.weekly || {}, v = a.volatility || {}, m = a.momentum || {}, an = a.analogues || {};
+  return `<section class="ta-read" aria-label="Technical read"><h3>The technical read</h3>
+    <ul>${a.read.map((r) => `<li><span class="lnk" role="button" tabindex="0" data-ref="${esc(r.ref)}" title="Show this on the chart">${esc(r.text)}</span></li>`).join("")}</ul>
+    <dl class="ta-facts">
+      <div><dt>Typical move</dt><dd>median ±${v.typical_day}% a day and ±${v.typical_week}% a week over the last 60 sessions; average daily range (ATR) ${v.atr_pct}%${v.atr_trend ? `; daily range ${v.atr_trend} (ATR ${v.atr_change_50d > 0 ? "+" : ""}${v.atr_change_50d}% vs 50 sessions ago)` : ""}${v.squeeze ? "; Bollinger bands in a squeeze (narrowest 10% of the past year): a quiet spell that often ends in a bigger move, either way" : ""}.</dd></div>
+      <div><dt>Averages</dt><dd>${(a.averages || []).map((x) => `${x.n}-day ${x.value.toFixed(2)} (${x.slope}, ${x.dist_atr > 0 ? "+" : ""}${x.dist_atr} ATR away${x.stretched ? ", stretched" : ""})`).join("; ")}${a.ma_cross ? `. Last crossover: ${esc(a.ma_cross.kind)} on ${esc(fmtDay(a.ma_cross.date))}` : ""}.</dd></div>
+      <div><dt>Momentum</dt><dd>RSI ${m.rsi} (${m.rsi_zone}); 10-day change ${m.roc10 > 0 ? "+" : ""}${m.roc10}%, 20-day ${m.roc20 > 0 ? "+" : ""}${m.roc20}%.</dd></div>
+      ${a.rs ? `<div><dt>Relative strength</dt><dd>${esc(a.rs.text)}${a.rs_sector ? `; ${esc(a.rs_sector.text)}` : ""}.</dd></div>` : ""}
+      ${(a.candles || []).length ? `<div><dt>Recent candles</dt><dd>${a.candles.map((c) => `${esc(fmtDay(c.date))}: ${esc(c.text)}`).join("; ")}.</dd></div>` : ""}
+      ${(a.gaps || []).length ? `<div><dt>Open gaps</dt><dd>${a.gaps.map((g) => `${esc(fmtDay(g.date))} gap ${g.dir} between ${g.from}–${g.to}, not yet filled`).join("; ")}.</dd></div>` : ""}
+      ${Object.keys(an).length ? `<div><dt>What followed before</dt><dd>${Object.entries(an).map(([k, x]) => `${esc(k.replace(/_/g, " "))}: ${esc(x.text)}`).join("; ")}. Past cases from this stock's own history; not a forecast.</dd></div>` : ""}
+    </dl></section>`;
+}
+
 /* Daily analysis: the read and next session's watch list, beside the chart (fr/daily.py rules). */
 function dailyHtml(d) {
   if (!d || d.error) return "";
   const x = d.expect || {};
-  return `<section class="daily" aria-label="Daily analysis"><div class="daily-read"><h3>The read</h3>
-      <ul>${(d.read || []).map((r) => `<li><b>${esc(r.what)}.</b> ${esc(r.means)} ${TAG(r.tag)}</li>`).join("") || `<li class="faint">Nothing stands out in the daily technicals.</li>`}</ul></div>
-    <div class="daily-next"><h3>Next session</h3>
+  return `<section class="daily" aria-label="Next session"><div class="daily-next"><h3>Next session</h3>
       ${x.range ? `<p class="rng"><b>±${x.range.pct}%</b> typical day <span class="faint">($${x.range.low.toFixed(2)} to $${x.range.high.toFixed(2)})</span></p>` : ""}
       <ul>${(x.if || []).map((l) => `<li>${esc(l)}</li>`).join("")}${(x.events || []).map((e) => `<li><b>Scheduled:</b> ${esc(e)}</li>`).join("")}</ul>
       <p class="dir">${esc(x.direction_note || "")}</p></div>
@@ -774,6 +939,7 @@ async function openStock(t) {
       <p class="faint" style="font-size:12px">Default is no action: nothing here has a proven edge.</p></section>
     ${mattersHtml(c.impact)}
     <div id="chart-box"></div>
+    <div id="ta-read-slot"></div>
     ${dailyHtml(extra.daily)}
     ${fold("Pros, cons and questions (Mentor)", mentorHtml(c.ticker, mentor))}
     ${fold("The case against (Challenge)", challengeHtml(extra.challenge))}
@@ -818,7 +984,12 @@ async function openStock(t) {
     ${(c.impact && c.impact.rest.length) ? `<div class="sec"><h3>Smaller findings</h3><ul class="impact">${c.impact.rest.map((i) => `<li title="What would change this: ${esc(i.change)}">${itemHead(i)} ${esc(i.so_what)}</li>`).join("")}</ul></div>` : ""}
     </details>`);
   fillBrief(c.ticker);
-  drawChart(c.ticker, lv, extra.daily);
+  const box = $("#chart-box"), x = (extra.daily && extra.daily.expect) || {};
+  const extraLv = (x.above || []).concat(x.below || []).map((l) => ({ name: l.label, price: l.price, explain: l.explain }));
+  taChart(box, c.ticker, extraLv).then((tc) => {
+    if (!tc) { drawChart(c.ticker, lv, extra.daily); return; }
+    const slot = $("#ta-read-slot"); if (slot) { slot.innerHTML = taReadHtml(tc.a); slot.querySelectorAll("[data-ref]").forEach((b) => { b.addEventListener("click", () => tc.focus(b.dataset.ref)); b.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); tc.focus(b.dataset.ref); } }); }); }
+  });
 }
 
 function openEarnings(r) {
@@ -940,7 +1111,7 @@ function vixHtml(v) {
    collisions). Nearby levels (within 0.3%) merge into one label; labels are nudged apart (min 18px) and joined
    to their true price by a short leader. Lines on the plot are thin and muted so price stays the strongest mark.
    The distance and meaning of every level go in the list under the chart. */
-const LABEL_GAP = 18;
+const LABEL_GAP = 19;
 function mergeLevels(levels, last) {
   const xs = levels.filter((l) => l.price != null).sort((a, b) => b.price - a.price), out = [];
   xs.forEach((l) => { const p = out[out.length - 1];
