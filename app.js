@@ -1050,7 +1050,7 @@ function openEarnings(r) {
 
 function chartOpts(el) {
   const css = getComputedStyle(document.documentElement), v = (k) => css.getPropertyValue(k).trim();
-  return { width: el.clientWidth, height: el.clientHeight, layout: { background: { color: "transparent" }, textColor: v("--muted"), fontFamily: "Source Sans 3, -apple-system, sans-serif", fontSize: 12 },
+  return { width: el.clientWidth, height: el.clientHeight, layout: { background: { color: "transparent" }, textColor: v("--muted"), fontFamily: "Inter, -apple-system, sans-serif", fontSize: 12 },
     grid: { vertLines: { color: v("--line") }, horzLines: { color: v("--line") } }, rightPriceScale: { borderColor: v("--line") },
     timeScale: { borderColor: v("--line") }, crosshair: { mode: 0 } };
 }

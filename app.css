@@ -1,5 +1,7 @@
 /* Type: Source Sans 3 (SIL OFL, self-hosted subset in web/fonts; no font CDN). Its default figures are
    tabular, so number columns line up. Two weights only: 400 and 600; no faux bold. */
+@font-face { font-family: "Inter"; src: url("fonts/Inter-Regular.woff") format("woff"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("fonts/Inter-SemiBold.woff") format("woff"); font-weight: 500 900; font-style: normal; font-display: swap; }
 @font-face { font-family: "Source Sans 3"; src: url("fonts/SourceSans3-Regular.woff") format("woff"); font-weight: 400; font-style: normal; font-display: swap; }
 @font-face { font-family: "Source Sans 3"; src: url("fonts/SourceSans3-Semibold.woff") format("woff"); font-weight: 500 900; font-style: normal; font-display: swap; }
 /* Tokens: docs/DESIGN.md ("the analyst's ledger at night"). Only impact direction is saturated. */
@@ -19,7 +21,7 @@
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
   --fs-hero: clamp(26px, 3.4vw, 38px); --fs-h2: 19px; --fs-h3: 16px; --fs-body: 15.5px; --fs-sm: 14px; --fs-xs: 13px; --fs-num: 30px;
   --lh-body: 1.55; --lh-tight: 1.15;
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Source Sans 3", "Segoe UI", Roboto, sans-serif;   /* SF Pro on Apple devices; Inter pending download approval */
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;   /* Inter 4.1 self-hosted (SIL OFL), system font fallback */
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
 [data-theme="light"] {
