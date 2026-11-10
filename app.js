@@ -369,8 +369,18 @@ async function viewOps(main) {
   if (STATIC) { main.innerHTML = `<div class="head"><h1>Research operations</h1></div><p class="faint">Not included in the shared snapshot.</p>`; return; }
   main.innerHTML = skel();
   const o = await api("/api/ops");
+  let K = null; try { K = await load("/api/committee"); } catch (e) { K = null; }
+  const agentHealth = K ? `<section class="cc-sec"><h2>Agent Health</h2><div class="tbl-wrap"><table><thead><tr><th>Agent</th><th>Runs On</th><th>Latest Input</th><th>Status</th></tr></thead><tbody>
+    ${[["Fundamental", "SEC filings, quality grade, valuation", (o.staleness || []).find((s) => /SEC/.test(s.data))],
+       ["Macro", "QQQ/SPY trend, VIX, FRED series", (o.staleness || []).find((s) => /VIX/.test(s.data))],
+       ["Quant", "Signal registry, forecast ledger", null],
+       ["Technical", "Daily bars, level registry", (o.staleness || []).find((s) => /QQQ/.test(s.data))],
+       ["Risk", "Risk controller, calendars", (o.staleness || []).find((s) => /Levels/.test(s.data))]].map(([n, src, st]) =>
+       `<tr><td>${n}</td><td>${esc(src)}</td><td>${st ? esc(st.latest) : "—"}</td><td>${st && st.missing ? "Missing input" : "Running"}</td></tr>`).join("")}
+    <tr><td>CIO (AI note)</td><td>Claude Code on your plan login, once a day</td><td>${esc(((K.ai_status || {}).last_run || {}).detail || "never run")}</td><td>${(K.ai_status || {}).available_today ? "Ran today" : esc(((K.ai_status || {}).last_run || {}).status || "Not run today")}</td></tr>
+    </tbody></table></div></section>` : "";
   const tbl = (rows, cols) => `<div class="tbl-wrap"><table><thead><tr>${cols.map((c) => `<th>${esc(c[1])}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td>${esc(String(r[c[0]] ?? "—"))}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${cols.length}" class="empty">none</td></tr>`}</tbody></table></div>`;
-  main.innerHTML = `<div class="head"><div><h1>Research operations</h1><p class="sub">System state: jobs, data freshness, schedules, open questions, signal registry. Generated ${esc(dateFmt(o.generated_at))}.</p></div></div>
+  main.innerHTML = agentHealth + `<div class="head"><div><h1>Research operations</h1><p class="sub">System state: jobs, data freshness, schedules, open questions, signal registry. Generated ${esc(dateFmt(o.generated_at))}.</p></div></div>
     <h2>System issues</h2>${o.issues.length ? `<ul>${o.issues.map((i) => `<li><b>${esc(i.severity)}</b> ${esc(i.area)}: ${esc(i.message)}</li>`).join("")}</ul>` : `<p class="faint">None: all checks pass.</p>`}
     <h2>Data freshness</h2>${tbl(o.staleness, [["data", "Data"], ["latest", "Latest"]])}
     <h2>Scheduled reports</h2>${tbl(o.schedule.map((s) => ({ ...s, last: s.last ? s.last.report_date : "—" })), [["report", "Report"], ["when", "When"], ["last", "Last saved"]])}
@@ -913,6 +923,37 @@ function fold(title, html, open) {
   return html && html.trim() ? `<details class="fold"${open ? " open" : ""}><summary>${esc(title)}</summary>${html}</details>` : "";
 }
 
+/* Company Research: the page ends in (and opens with) the committee's call; the evidence follows. */
+const bigMoney = (x) => (x == null ? "—" : x >= 1e12 ? `$${(x / 1e12).toFixed(2)}T` : x >= 1e9 ? `$${(x / 1e9).toFixed(1)}B` : `$${(x / 1e6).toFixed(0)}M`);
+function profileHtml(p, c) {
+  if (!p) return "";
+  return `<p class="prof">${[p.sector, p.industry].filter(Boolean).map(esc).join(", ")}${p.market_cap ? `. Market cap ${bigMoney(p.market_cap)}` : ""}. <span class="faint">Profile ${esc(p.source || "")}, ${esc(p.as_of || "")}.</span></p>`;
+}
+function committeeCallHtml(k, th) {
+  if (!k) return `<section class="ccall"><h3>Committee Call</h3><p class="faint">No committee card for this stock (outside the focus list).</p></section>`;
+  const v = (th && th.valuation) || {}, dcf = v.dcf || {};
+  return `<section class="ccall" aria-label="Committee call">
+    <div class="ccall-h"><h3>Committee Call</h3>${callPill(k)}<span class="cv">${esc(convText(k))}</span></div>
+    <p class="hl">${esc(k.headline)}</p>
+    ${k.veto ? `<p class="veto">Risk veto: ${esc(k.veto.join("; "))}.</p>` : ""}
+    <dl class="rec-f">
+      <div><dt>Invalidation</dt><dd>${esc(k.invalidation_text)}</dd></div>
+      <div><dt>Entry</dt><dd>${k.entry != null ? money2(k.entry) : "No entry: not a buying call."}</dd></div>
+      <div><dt>Reference Target</dt><dd>${k.target != null ? money2(k.target) + " (a reference, not a forecast)" : "None."}</dd></div>
+      <div><dt>Horizon</dt><dd>${k.horizon} trading days</dd></div>
+      <div><dt>What Changes Our Mind</dt><dd>${esc(k.change_mind)}</dd></div>
+      ${k.size ? `<div><dt>Paper Size</dt><dd>${k.size.paper_pct}%, <b>${esc(k.size.status)}</b></dd></div>` : ""}
+    </dl>
+    ${(k.dissent || []).length ? `<p class="dissent"><b>Dissent:</b> ${k.dissent.map((d) => `${esc(d.agent)}: ${esc(d.reason)}`).join(" ")}</p>` : `<p class="faint small">No agent dissents.</p>`}
+    ${dcf.base ? `<div class="bbb" aria-label="Bull, base and bear values"><div><span>Bear</span><b>${money2(dcf.bear)}</b></div><div class="base"><span>Base</span><b>${money2(dcf.base)}</b></div><div><span>Bull</span><b>${money2(dcf.bull)}</b></div>
+      <p class="faint small">Cash-flow value per share (fading DCF; assumptions in Long-Term View). Own price/sales history range ${money2((v.own_history_ps || {}).low)}–${money2((v.own_history_ps || {}).high)}. Estimates, not forecasts.</p></div>` : ""}
+    <details class="fold"><summary>Agent Views</summary><table class="agents"><thead><tr><th>Agent</th><th>Stance</th><th>Why</th></tr></thead><tbody>
+      ${AGENT_ORDER.map(([key, n]) => { const a = k.agents[key]; return `<tr><td>${n}</td><td class="s${a.veto ? "v" : a.stance}">${stanceGlyph(a)} ${esc(stanceWord(a))}</td><td>${esc(a.reason)} <span class="faint">(${esc(EVID[a.evidence] || a.evidence || "")})</span></td></tr>`; }).join("")}
+      </tbody></table></details>
+    ${aiBox(k.ai_note)}
+  </section>`;
+}
+
 async function openStock(t) {
   t = String(t || "").toUpperCase().trim();
   if (!t) return;
@@ -926,15 +967,17 @@ async function openStock(t) {
       openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(t)}</span></div><p class="muted" style="margin-top:12px">${esc(d.error)}</p>`);
       return;
     }
-    c = c || d.card; kn = d.keynums; mentor = d.mentor; scen = d.scenarios; extra = { levels: d.levels, moves: d.moves_with, challenge: d.challenge, oc: d.options_check, thesis: d.thesis, daily: d.daily };
+    c = c || d.card; kn = d.keynums; mentor = d.mentor; scen = d.scenarios; extra = { levels: d.levels, moves: d.moves_with, challenge: d.challenge, oc: d.options_check, thesis: d.thesis, daily: d.daily, committee: d.committee, profile: d.profile };
   } catch (e) {
     if (!c) { openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(t)}</span></div><div class="err">Could not load this stock: ${esc(e.message)}</div>`); return; }
   }
   const lv = c.play.levels, f = c.fundamental;
   openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(c.ticker)}</span><span class="muted">${esc(c.name)}</span></div>
     <div class="dh"><span class="px num">${money(c.price)}</span><span class="num ${dirCls(c.change_1d)}">${pct(c.change_1d)} last session</span></div>
+    ${profileHtml(extra.profile, c)}
+    ${committeeCallHtml(extra.committee, extra.thesis)}
     ${asofHtml(c, kn)}
-    <section class="verdict-box" aria-label="Verdict"><div class="biz">${gradeBadge(f)} <span class="hl">${esc(f.headline)}</span></div>
+    <section class="verdict-box" aria-label="Business"><div class="biz">${gradeBadge(f)} <span class="hl">${esc(f.headline)}</span></div>
       ${c.todo ? `<p class="todo-line"><b>What to do:</b> ${esc(c.todo)}</p>` : ""}
       <p class="faint" style="font-size:12px">Default is no action: nothing here has a proven edge.</p></section>
     ${mattersHtml(c.impact)}
@@ -1185,11 +1228,215 @@ async function drawIndexChart(host, t, s, gates) {
   levelChart(host.querySelector(".cbox"), d.bars, levels, { color: s.trend === "downtrend" ? v("--down") : s.trend === "uptrend" ? v("--up") : v("--warn") });
   host.querySelector(".lvl-host").innerHTML = levelList(levels, s.close);
 }
+/* ------------------------------------------------------------------ investment committee (fr/committee.py) */
+/* The unit of content is a decision: each card leads with the call, carries conviction (a stated rule), an
+   invalidation, the six agents' stances with reasons, and any dissent or veto. Hypothetical research only. */
+const CALL_CLS = { Buy: "c-buy", Accumulate: "c-acc", Hold: "c-hold", Reduce: "c-red", Avoid: "c-avoid", "No Call": "c-none" };
+const AGENT_ORDER = [["fundamental", "Fundamental"], ["macro", "Macro"], ["quant", "Quant"], ["technical", "Technical"], ["risk", "Risk"]];
+const stanceGlyph = (a) => (a.veto ? "⛔" : a.stance > 0 ? "▲" : a.stance < 0 ? "▼" : "●");
+const stanceWord = (a) => (a.veto ? "Veto" : a.stance > 0 ? "Supports" : a.stance < 0 ? "Against" : "Neutral");
+const money2 = (x) => (x == null ? "—" : "$" + Number(x).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const disclosure = (d) => `<p class="disclosure">${esc(d || "Hypothetical research. Not investment advice. Nothing is traded.")}</p>`;
+function stanceDots(c) {
+  return `<span class="dots" aria-label="Agent stances">${AGENT_ORDER.map(([k, n]) => { const a = c.agents[k];
+    return `<span class="dot s${a.veto ? "v" : a.stance}" title="${esc(n)}: ${esc(stanceWord(a))}. ${esc(a.reason)}"><b>${n[0]}</b>${stanceGlyph(a)}</span>`; }).join("")}</span>`;
+}
+function callPill(c) { return `<span class="call ${CALL_CLS[c.call] || ""}">${esc(c.call)}</span>`; }
+function convText(c) { return c.conviction.level ? `${c.conviction.level} Conviction` : "No Conviction (not a directional call)"; }
+
+const aiBox = (n, cls = "") => n ? `<div class="ai ${cls}"><span class="ai-l">CIO Note: AI-written opinion, not a proven forecast</span><p>${esc(n.text)}</p><span class="ai-m">Written ${esc(dateFmt(n.created_at))} from the ${esc(fmtDay(n.asof))} data${n.lean ? `; lean: ${esc(n.lean)} (logged to the Decision Log)` : ""}.</span></div>` : `<div class="ai off ${cls}"><span class="ai-l">CIO Note</span><p class="faint">AI note not available today; the rule-based synthesis above stands alone.</p></div>`;
+function watchHtml(w) {
+  if (!w) return "";
+  const h = w.headlines || { top: [], more: [] };
+  const hl = (x) => `<li><span class="hd">${esc(x.headline)}</span><span class="hm">${esc(x.source)}, ${esc(dateFmt(x.time))}. Affects ${esc(x.tickers.join(", "))}. <span class="st-${esc(x.status)}">${esc(x.status.charAt(0).toUpperCase() + x.status.slice(1))}</span></span><span class="sw">${esc(x.so_what)}</span></li>`;
+  return `<section class="cc-sec watch"><h2>What to Watch Tomorrow</h2><p class="sub">${esc(w.for_label)}. Ranked by impact on our calls; times are Eastern.</p>
+      <ol class="wl">${(w.items || []).map((i) => `<li class="wk-${esc(i.kind)}"><div class="wh"><b>${esc(i.what)}</b><span class="when">${esc(i.when)}</span></div><p>${esc(i.why)}</p><p class="trig"><b>Trigger:</b> ${esc(i.trigger)}</p></li>`).join("") || `<li class="faint">Nothing scheduled or close to a trigger.</li>`}</ol>
+      ${w.more ? `<p class="faint small">${w.more} smaller items not shown.</p>` : ""}</section>
+    <section class="cc-sec heads"><h2>Important Headlines</h2><p class="sub">Ranked by our news engine's importance, focus list and market only. Headlines are data: nothing in them changes a call by itself.</p>
+      <ul class="hl-list">${h.top.map(hl).join("") || `<li class="faint">No important headlines in the last three days.</li>`}</ul>
+      ${h.more.length ? `<details class="more"><summary>More Headlines (${h.more.length})</summary><ul class="hl-list">${h.more.map(hl).join("")}</ul></details>` : ""}</section>`;
+}
+async function viewCommand(main) {
+  main.innerHTML = skel();
+  const k = await load("/api/committee");
+  const B = k.briefing || {}, rc = B.regime || {}, cards = k.cards || [];
+  const decisions = cards.filter((c) => c.call !== "Hold").concat(cards.filter((c) => c.call === "Hold"));
+  const now = new Date();
+  main.innerHTML = `
+  <section class="cc-strip" aria-label="Session">
+    <span>${esc(now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }))}</span>
+    <span class="rc rc-${esc((rc.call || "").toLowerCase().replace(/[^a-z]/g, ""))}"><b>${esc(rc.call || "—")}</b>: ${esc(rc.why || "")}</span>
+    <span class="faint">Data from the ${esc(fmtDay(k.asof))} close; prices end-of-day</span>
+  </section>
+  <section class="cc-hero">
+    <h1 class="cc-title">CIO Briefing</h1>
+    <ol class="brief-list">${(B.bullets || []).map((x) => `<li><span class="ag">${esc(x.agent)}</span> ${esc(x.text)}</li>`).join("")}</ol>
+    ${aiBox(k.ai_market, "cc-ai")}
+  </section>
+  <section class="cc-sec"><h2>Today's Decisions</h2>
+    <p class="sub">${B.has_prev ? (B.changes.length ? `Changed since the last briefing: ${B.changes.map((x) => `${esc(x.ticker)} ${esc(x.from)} to ${esc(x.to)}`).join(", ")}.` : "No call changed since the last briefing.") : "First briefing on record: today's calls are the starting book."}</p>
+    <div class="tbl-wrap"><table class="sortable" data-sort><thead><tr><th>Ticker</th><th>Action</th><th>Conviction</th><th class="num">Paper Size</th><th>Reason</th><th>Invalidation</th></tr></thead><tbody>
+      ${decisions.map((c) => `<tr><td><a href="#/recs?t=${esc(c.ticker)}"><b>${esc(c.ticker)}</b></a></td><td data-v="${esc(c.call)}">${callPill(c)}</td><td>${esc(c.conviction.level || "None")}</td>
+        <td class="num">${c.size ? `${c.size.paper_pct}% <span class="faint">pending</span>` : "—"}</td><td>${esc(c.headline.replace(/^[^:]+: /, ""))}</td><td>${c.invalidation != null ? money2(c.invalidation) : "—"}</td></tr>`).join("")}
+    </tbody></table></div></section>
+  ${watchHtml(k.watch)}
+  <section class="cc-sec"><h2>Active Book</h2>
+    <p>No positions recorded, so there is no live book to mark. ${k.sizes_shown ? `The committee's hypothetical paper book is on <a href="#/book">Position Book</a> (sizes pending your approval).` : ""}</p></section>
+  <section class="cc-sec"><h2>Emerging Calls</h2><p class="sub">What could become a call, what we are waiting for, and when it is decided.</p>
+    ${(B.emerging || []).length ? `<div class="tbl-wrap"><table class="sortable"><thead><tr><th>Idea</th><th>Waiting For</th><th>Decision By</th></tr></thead><tbody>
+      ${B.emerging.map((e) => `<tr><td><b>${esc(e.what)}</b></td><td>${esc(e.waiting_for)}</td><td>${esc(e.decision_by)}</td></tr>`).join("")}</tbody></table></div>` : `<p class="faint">Nothing close to becoming a call.</p>`}</section>
+  <div class="cc-two">
+    <section class="cc-sec"><h2>Top Risks</h2>
+      ${(B.risks || []).length ? `<ol>${B.risks.map((r) => `<li><b>${esc(r.risk)}</b>. Threatens ${esc(r.threatens)}. <span class="faint">${esc(r.detail)}</span></li>`).join("")}</ol>` : `<p class="faint">No ranked risks today.</p>`}</section>
+    <section class="cc-sec"><h2>Committee Notes</h2>
+      ${(B.notes || []).length ? `<ul>${B.notes.map((n) => `<li class="note-${esc(n.kind)}">${esc(n.text)}</li>`).join("")}</ul>` : `<p class="faint">No dissent, vetoes or open debates.</p>`}</section>
+  </div>
+  <section class="cc-sec"><h2>PM Sign-off</h2><p class="sub">Nothing is executed: there is no broker connection. These need your decision.</p>
+    <ul>${(B.signoff || []).map((s) => `<li><b>${esc(s.item)}</b>: ${esc(s.detail)}</li>`).join("")}</ul></section>
+  ${disclosure(k.disclosure)}`;
+  enableSort(main);
+}
+
+/* Sortable tables: click a header to sort (numbers numerically), again to reverse. Keyboard: Enter on a header. */
+function enableSort(root) {
+  root.querySelectorAll("table.sortable").forEach((t) => t.querySelectorAll("thead th").forEach((th, i) => {
+    th.tabIndex = 0; th.setAttribute("role", "button"); th.title = "Sort";
+    const go = () => { const tb = t.tBodies[0], rows = [...tb.rows], dir = th.dataset.dir === "asc" ? "desc" : "asc";
+      t.querySelectorAll("th").forEach((x) => { delete x.dataset.dir; x.removeAttribute("aria-sort"); }); th.dataset.dir = dir; th.setAttribute("aria-sort", dir === "asc" ? "ascending" : "descending");
+      const val = (r) => { const c = r.cells[i]; const v = c.dataset.v ?? c.innerText.trim(); const n = parseFloat(v.replace(/[$,%+]/g, "")); return isNaN(n) ? v.toLowerCase() : n; };
+      rows.sort((a, b) => { const x = val(a), y = val(b); return (x > y ? 1 : x < y ? -1 : 0) * (dir === "asc" ? 1 : -1); }); rows.forEach((r) => tb.appendChild(r)); };
+    th.addEventListener("click", go); th.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+  }));
+}
+
+function recCardHtml(c) {
+  const up = c.target != null && c.price ? (c.target / c.price - 1) * 100 : null;
+  return `<article class="rec" id="rec-${esc(c.ticker)}">
+      <header><b class="tk">${esc(c.ticker)}</b> <span class="faint">${esc(c.name || "")}</span>${callPill(c)}<span class="cv">${esc(convText(c))}</span><span class="px">${money2(c.price)}</span></header>
+      <p class="hl">${esc(c.headline)}</p>
+      ${c.veto ? `<p class="veto">Risk veto: ${esc(c.veto.join("; "))}. No call is made while it stands.</p>` : ""}
+      <dl class="rec-f">
+        <div><dt>Invalidation</dt><dd>${esc(c.invalidation_text)}</dd></div>
+        <div><dt>Entry</dt><dd>${c.entry != null ? `${money2(c.entry)} (top of the nearest support zone)` : "No entry: not a buying call."}</dd></div>
+        <div><dt>Reference Target</dt><dd>${c.target != null ? `${money2(c.target)}${up != null ? ` (${up >= 0 ? "+" : ""}${up.toFixed(1)}%)` : ""}; ${c.horizon_kind === "fundamental" ? "thesis base value" : "nearest zone"}, a reference, not a forecast` : "None."}</dd></div>
+        <div><dt>Horizon</dt><dd>${c.horizon} trading days (${esc(c.horizon_kind)})</dd></div>
+        <div><dt>Conviction</dt><dd>${esc(c.conviction.level || "None")}: ${esc(c.conviction.rule)}</dd></div>
+        <div><dt>What Changes Our Mind</dt><dd>${esc(c.change_mind)}</dd></div>
+        ${c.size ? `<div><dt>Paper Size</dt><dd>${c.size.paper_pct}% of a hypothetical paper book. <b>${esc(c.size.status)}</b>. ${esc(c.size.note)}</dd></div>` : ""}
+        <div><dt>Freshness</dt><dd>Data from the ${esc(fmtDay(c.asof))} close${c.stale ? "; stale" : ""}.</dd></div>
+      </dl>
+      ${(c.dissent || []).length ? `<p class="dissent"><b>Dissent:</b> ${c.dissent.map((d) => `${esc(d.agent)}: ${esc(d.reason)}`).join(" ")}</p>` : `<p class="faint small">No agent dissents from this call.</p>`}
+      <details class="fold"><summary>Agent Views And Evidence</summary>
+      <table class="agents"><thead><tr><th>Agent</th><th>Stance</th><th>Why</th><th>Evidence</th></tr></thead><tbody>
+        ${AGENT_ORDER.map(([key, n]) => { const a = c.agents[key]; return `<tr><td>${n}</td><td class="s${a.veto ? "v" : a.stance}">${stanceGlyph(a)} ${esc(stanceWord(a))}</td><td>${esc(a.reason)}</td><td class="faint">${esc(EVID[a.evidence] || a.evidence || "")}</td></tr>`; }).join("")}
+        <tr><td>CIO</td><td>${callPill(c)}</td><td>Call by the stated rule; the CIO note is opinion and never changes it.</td><td class="faint">docs/committee/PHASE2_SPEC.md</td></tr></tbody></table>
+      ${(c.ta_read || []).length ? `<p class="small"><b>Technical read:</b> ${esc(c.ta_read.map((x) => x.text).join(" "))}</p>` : ""}
+      </details>
+      ${aiBox(c.ai_note)}
+      <p><a href="#" data-open="${esc(c.ticker)}">Open the company research</a></p></article>`;
+}
+const EVID = { fundamentals: "Quality grade from SEC filings; valuation verdict (own history, peers, reverse DCF)", overview: "QQQ trend vs 50/200-day; VIX band", signals: "Signal registry: all experimental",
+  ta: "Swing structure and 50-day average from daily closes", risk: "Risk controller vetoes", events: "Earnings calendar" };
+const CONV_RANK = { High: 3, Medium: 2, Low: 1 };
+
+async function viewRecs(main) {
+  main.innerHTML = skel();
+  const k = await load("/api/committee");
+  const want = new URLSearchParams(location.hash.split("?")[1] || "").get("t");
+  const all = k.cards || [];
+  main.innerHTML = `<div class="head"><div><h1>Recommendations</h1><p class="sub">The committee's active book of calls: each with conviction, where it is wrong, and every agent's view. Data from the ${esc(fmtDay(k.asof))} close.</p></div></div>
+    <div class="filters" role="group" aria-label="Filter and sort">
+      <label>Action <select id="f-act"><option value="">All</option>${CALLS_LIST.map((c) => `<option>${c}</option>`).join("")}</select></label>
+      <label>Conviction <select id="f-conv"><option value="">All</option><option>Medium</option><option>Low</option><option value="none">None</option></select></label>
+      <label>Horizon <select id="f-hor"><option value="">All</option><option value="technical">20 days</option><option value="fundamental">250 days</option></select></label>
+      <label>Sort <select id="f-sort"><option value="conv">Conviction</option><option value="up">Reference upside</option><option value="ticker">Ticker</option></select></label>
+      <span id="f-n" class="faint"></span></div>
+    <div class="rec-list" id="rec-list"></div>${disclosure(k.disclosure)}`;
+  const draw = () => {
+    const act = $("#f-act").value, conv = $("#f-conv").value, hor = $("#f-hor").value, srt = $("#f-sort").value;
+    let xs = all.filter((c) => (!act || c.call === act) && (!conv || (conv === "none" ? !c.conviction.level : c.conviction.level === conv)) && (!hor || c.horizon_kind === hor));
+    const upv = (c) => (c.target != null && c.price ? c.target / c.price - 1 : -9);
+    xs.sort(srt === "ticker" ? (a, b) => a.ticker.localeCompare(b.ticker) : srt === "up" ? (a, b) => upv(b) - upv(a) : (a, b) => (CONV_RANK[b.conviction.level] || 0) - (CONV_RANK[a.conviction.level] || 0));
+    if (want) xs = xs.sort((a, b) => (a.ticker === want ? -1 : b.ticker === want ? 1 : 0));
+    $("#rec-list").innerHTML = xs.map(recCardHtml).join("") || `<div class="empty-state"><h2>No Calls Match</h2><p>Change the filters to see more of the book.</p></div>`;
+    $("#f-n").textContent = `${xs.length} of ${all.length}`;
+    $("#rec-list").querySelectorAll("[data-open]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); openStock(a.dataset.open); }));
+  };
+  ["#f-act", "#f-conv", "#f-hor", "#f-sort"].forEach((s) => $(s).addEventListener("change", draw));
+  draw();
+  if (want) { const el = document.getElementById("rec-" + want); if (el) el.scrollIntoView({ block: "start" }); }
+}
+const CALLS_LIST = ["Buy", "Accumulate", "Hold", "Reduce", "Avoid", "No Call"];
+
+async function viewOppsC(main) {
+  main.innerHTML = skel();
+  const [k, o] = await Promise.all([load("/api/committee"), load("/api/opportunities").catch(() => ({}))]);
+  const B = k.briefing || {}, cards = Object.fromEntries((k.cards || []).map((c) => [c.ticker, c]));
+  const rows = [];
+  ((o.pipeline || {}).opportunities || []).forEach((p) => rows.push({ name: p.subject, why: `A ${p.kind.includes("bull") ? "breakout" : "breakdown"} setup triggered (${(p.checks.find((x) => x.state === 5) || {}).reason || "price level"}).`,
+    waiting: `${p.blocker}; and a validated edge for this setup type (none yet).`, by: `${fmtDay(p.window_end)} (the setup's window ends)`, call: cards[p.subject] && cards[p.subject].call, rank: 2 }));
+  (B.emerging || []).forEach((e) => { const t = e.what.split(" ")[0]; rows.push({ name: e.what, why: cards[t] ? `${t} is ${cards[t].call} today; this trigger would change it.` : "Close to a level that matters.",
+    waiting: e.waiting_for, by: e.decision_by, call: cards[t] && cards[t].call, rank: 1 }); });
+  main.innerHTML = `<div class="head"><div><h1>Opportunities</h1><p class="sub">Ideas the committee is evaluating. Each has why it surfaced, what we are waiting for, and when it is decided. No idea appears without a path to a decision.</p></div></div>
+    ${rows.length ? `<div class="tbl-wrap"><table class="sortable"><thead><tr><th>Idea</th><th>Today's Call</th><th>Why It Surfaced</th><th>Waiting For</th><th>Decision By</th></tr></thead><tbody>
+      ${rows.sort((a, b) => b.rank - a.rank).map((r) => `<tr><td><b>${esc(r.name)}</b></td><td>${r.call ? callPill({ call: r.call }) : "—"}</td><td>${esc(r.why)}</td><td>${esc(r.waiting)}</td><td>${esc(r.by)}</td></tr>`).join("")}</tbody></table></div>` :
+      `<div class="empty-state"><h2>Nothing Under Evaluation</h2><p>No setup has triggered and no call is near a level that would change it.</p></div>`}
+    <p class="faint small">The full eleven-check pipeline is under More, Setup Pipeline.</p>${disclosure(k.disclosure)}`;
+  enableSort(main);
+}
+
+async function viewEarnC(main) {
+  main.innerHTML = skel();
+  const [k, e] = await Promise.all([load("/api/committee"), load("/api/earnings")]);
+  const cards = Object.fromEntries((k.cards || []).map((c) => [c.ticker, c]));
+  const all = (e.this_week || []).concat(e.next_week || []);
+  const focus = all.filter((r) => cards[r.ticker] || ["CRWV", "AMAT", "CSCO", "NBIS"].includes(r.ticker));
+  const pre = focus.filter((r) => r.status !== "reported"), post = focus.filter((r) => r.status === "reported");
+  const preRow = (r) => { const c = cards[r.ticker]; return `<article class="rec"><header><b class="tk">${esc(r.ticker)}</b> <span class="faint">${esc(r.weekday)}, ${esc(r.timing)}${r.estimated === true || r.estimated === "True" ? " (estimated date)" : ""}</span>${c ? callPill(c) : ""}</header>
+    <p><b>What is expected:</b> ${esc(r.expect)}</p><p><b>Going in:</b> ${esc(r.priced_in || "")}</p>
+    <p><b>Our position:</b> ${c ? `${esc(c.call)}. ${esc(c.headline.replace(/^[^:]+: /, ""))} ${c.call === "Hold" && (c.agents.risk || {}).earnings ? "The report caps any buying until it is out." : ""}` : "No committee card (read-across name)."}</p>
+    <p><b>What would change the call:</b> ${c ? esc(c.change_mind) : esc(r.watch || "")}</p>
+    <p class="faint small">${esc(r.history || "")} Source: ${esc(r.source)}.</p></article>`; };
+  main.innerHTML = `<div class="head"><div><h1>Earnings Intelligence</h1><p class="sub">Pre-earnings calls (what is expected and where we stand) and post-earnings verdicts for the focus list and the names that read across to it. ${esc(e.this_range ? `${e.this_range[0]} to ${(e.next_range || e.this_range)[1]}` : "")}.</p></div></div>
+    <h2 class="sec-h">Before The Report</h2>${pre.map(preRow).join("") || `<div class="empty-state"><p>No focus-list reports in the next two weeks.</p></div>`}
+    <h2 class="sec-h">After The Report</h2>${post.map((r) => `<article class="rec"><header><b class="tk">${esc(r.ticker)}</b><span class="faint">${esc(r.weekday)}</span>${cards[r.ticker] ? callPill(cards[r.ticker]) : ""}</header><p>${esc(r.reported)}</p>
+      <p><b>Did it change the thesis?</b> The agents re-read the filing at the next refresh; today's call is ${cards[r.ticker] ? esc(cards[r.ticker].call) : "not on a card"}.</p></article>`).join("") || `<div class="empty-state"><p>No focus-list reports in the last few days.</p></div>`}
+    ${disclosure(k.disclosure)}`;
+}
+
+async function viewBook(main) {
+  main.innerHTML = skel();
+  const k = await load("/api/committee");
+  const paper = (k.cards || []).filter((c) => c.size);
+  main.innerHTML = `<div class="head"><div><h1>Position Book</h1><p class="sub">Your real positions, and separately a hypothetical paper book of the committee's calls.</p></div></div>
+    <section class="cc-sec"><h2>Your Positions</h2><p>No positions recorded. You can enter holdings under Settings (kept on this Mac only); the committee never trades and has no broker connection.</p></section>
+    <section class="cc-sec"><h2>Paper Book (Hypothetical)</h2>
+      ${!k.sizes_shown ? `<p class="faint">Paper sizes are hidden here until you approve how sizing works.</p>` :
+        paper.length ? `<p class="sub">Sizes are illustrative bands by conviction (Low 1%, Medium 2%, High 3%). <b>Pending your approval.</b> Not advice, never traded.</p>
+        <div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Call</th><th>Conviction</th><th class="num">Paper Size</th><th class="num">Entry</th><th class="num">Invalidation</th></tr></thead><tbody>
+        ${paper.map((c) => `<tr><td><b>${esc(c.ticker)}</b></td><td>${callPill(c)}</td><td>${esc(c.conviction.level)}</td><td class="num">${c.size.paper_pct}%</td><td class="num">${money2(c.entry)}</td><td class="num">${money2(c.invalidation)}</td></tr>`).join("")}</tbody></table></div>` :
+        `<p>No paper positions: the committee has no buying calls today.</p>`}
+    </section>${disclosure(k.disclosure)}`;
+}
+
+async function viewLog(main) {
+  main.innerHTML = skel();
+  const k = await load("/api/committee");
+  const log = k.log || [];
+  main.innerHTML = `<div class="head"><div><h1>Decision Log</h1><p class="sub">Every directional committee call, written to the forecast ledger before its window and scored against the benchmark when its horizon ends. Hypothetical research performance: there are no executed returns.</p></div></div>
+    ${log.length ? `<div class="tbl-wrap"><table><thead><tr><th>Recorded</th><th>Name</th><th>Call</th><th>Benchmark</th><th>Horizon</th><th>Result</th></tr></thead><tbody>
+      ${log.map((r) => `<tr><td class="num">${esc(dateFmt(r.created_at))}</td><td><b>${esc(r.subject)}</b></td><td>${esc(r.source_ref || r.direction)}</td><td>${esc(r.benchmark)}</td><td>${r.horizon_days} days from ${esc(fmtDay(r.window_start))}</td>
+        <td>${r.status === "scored" ? `${r.hit ? "Beat" : "Lagged"} the benchmark by ${Math.abs(r.excess).toFixed(2)} pts` : "Waiting for the horizon to end"}</td></tr>`).join("")}</tbody></table></div>` :
+      `<div class="empty-state"><h2>No Calls Logged Yet</h2><p>Directional calls are written here after the next scheduled research run. Holds and No Calls are not logged as forecasts.</p></div>`}
+    ${disclosure(k.disclosure)}`;
+}
+
 const STATE_GLYPH = { uptrend: "↗", downtrend: "↘", sideways: "→", calm: "○", normal: "◔", elevated: "◑", high: "●" };
 async function viewOverview(main) {
   main.innerHTML = skel();
-  const o = await load("/api/overview");
+  const [o, K] = await Promise.all([load("/api/overview"), load("/api/committee").catch(() => null)]);
   const ix = o.indices || {}, t = o.today || {}, reg = o.register || { rows: [] }, acc = o.accountability || {}, st = o.stocks || [];
+  const RC = K && K.briefing ? K.briefing.regime : null, macroAgainst = K ? (K.cards || []).filter((c) => c.agents.macro.stance < 0).length : 0;
   const mine = st.filter((r) => r.mine), others = st.filter((r) => !r.mine);
   const tone = /downtrend/.test(o.verdict.text) ? "dn" : /sideways/.test(o.verdict.text) ? "mid" : "up";
   const idxCard = (k) => { const s = ix[k]; if (!s) return "";
@@ -1198,6 +1445,8 @@ async function viewOverview(main) {
       ${railHtml(s)}<p class="means">${esc(s.means || "")}</p></article>`; };
   const maxAbs = Math.max(1, ...(o.sectors || []).map((x) => Math.abs(x.rel20)));
   main.innerHTML = `
+  ${RC ? `<section class="cc-hero mi-regime"><h1 class="cc-title">Market Intelligence</h1><p class="cc-lead">Regime: ${esc(RC.call)}.</p>
+    <p class="cc-sub">Because ${esc(RC.why)}. So what for our calls: ${esc(RC.implication)} Today the Macro agent votes against ${macroAgainst} of ${(K.cards || []).length} cards.</p></section>` : ""}
   <section class="cockpit ck-${tone}">
     <div class="ck-head">
       <h1 class="sr-only">${esc(o.verdict.text)}</h1>
@@ -1259,7 +1508,7 @@ async function viewOverview(main) {
   <details class="more ov-more"><summary>More context: what changed, drivers, evidence, accountability</summary>
     <div class="ov-more-grid">
       <div><h3>What changed</h3><ul>${o.changed.map((c) => `<li><span class="faint">${esc(fmtDay(c.date))}</span> ${esc(c.text)}</li>`).join("")}</ul></div>
-      <div><h3>What's driving the market</h3><ul>${(o.drivers || []).map((d) => `<li>${esc(d.text)} <b>${esc(d.means)}</b></li>`).join("")}</ul></div>
+      <div><h3>What's driving the market</h3><ul>${(o.drivers || []).map((d) => `<li>${esc(d.text)} <b>${esc(d.means)}</b>${RC ? ` <span class="faint">So what for our calls: ${esc(RC.call === "Risk-off" ? "keeps the Macro agent against long calls." : "no change to the Macro agent's vote.")}</span>` : ""}</li>`).join("")}</ul></div>
       <div><h3>Where the evidence disagrees</h3><ul>${(o.evidence || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
       <div><h3>Our record</h3><ul><li>${esc(acc.positions)}</li><li>${esc(acc.results)} ${esc(acc.ledger)}</li><li>${esc(acc.runs)}</li></ul><a href="#/track">Track record</a></div>
       <div><h3>Not available from free sources</h3><ul>${(o.not_available || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
@@ -1269,13 +1518,13 @@ async function viewOverview(main) {
   ["SPY", "QQQ"].forEach((k) => { if (ix[k]) drawIndexChart($(`#ixc-${k}`), k, ix[k], o.gates).catch(() => {}); });
 }
 
-const VIEWS = { overview: viewOverview, stocks: viewStocks, earnings: viewEarnings, market: viewMarket, opportunities: viewOpps, oversold: viewOversold, reports: viewReports, track: viewTrack, discovery: viewDiscovery, ops: viewOps, settings: viewSettings };
+const VIEWS = { command: viewCommand, recs: viewRecs, opps: viewOppsC, earnings2: viewEarnC, book: viewBook, log: viewLog, overview: viewOverview, stocks: viewStocks, earnings: viewEarnings, market: viewMarket, opportunities: viewOpps, oversold: viewOversold, reports: viewReports, track: viewTrack, discovery: viewDiscovery, ops: viewOps, settings: viewSettings };
 const skel = () => `<div class="list">${'<div class="skeleton"></div>'.repeat(6)}</div>`;
 function whenPlotly(fn, tries = 0) { if (window.Plotly) fn(); else if (tries < 60) setTimeout(() => whenPlotly(fn, tries + 1), 100); else { const e = $("#treemap"); if (e) e.innerHTML = `<div class="empty">Heatmap library unavailable (offline?).</div>`; } }
 
 async function route() {
-  const v = (location.hash.replace("#/", "") || "overview").split("?")[0];
-  const view = VIEWS[v] ? v : "overview";
+  const v = (location.hash.replace("#/", "") || "command").split("?")[0];
+  const view = VIEWS[v] ? v : "command";
   document.querySelectorAll(".tabs a").forEach((a) => { a.classList.toggle("active", a.dataset.view === view); a.setAttribute("aria-current", a.dataset.view === view ? "page" : "false"); });
   const more = document.querySelector(".more-nav");
   if (more) { more.classList.toggle("active", !!more.querySelector(`a[data-view="${view}"]`)); more.open = false; }

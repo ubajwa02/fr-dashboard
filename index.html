@@ -4,30 +4,37 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fundamentalist</title>
-<link rel="stylesheet" href="app.css?v=e09b39e30075">
+<link rel="stylesheet" href="app.css?v=ee1bc4383072">
 <script>
   try { const t = localStorage.getItem("fr-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
 </script>
-<script>window.FR_STATIC = {"asof": "2026-11-10 06:51 UTC"};</script>
+<script>window.FR_STATIC = {"asof": "2026-11-10 07:26 UTC"};</script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
-<div class="snapshot-banner" role="note">Read-only snapshot, updated 2026-11-10 06:51 UTC. Research, not advice. Scores, news and prices do not update until the next snapshot.</div>
+<div class="snapshot-banner" role="note">Read-only snapshot, updated 2026-11-10 07:26 UTC. Research, not advice. Scores, news and prices do not update until the next snapshot.</div>
 <header class="topbar">
   <div class="brand" aria-label="Fundamentalist">
     <span class="logo" aria-hidden="true">◆</span><span class="brand-name">Fundamentalist</span>
   </div>
   <nav class="tabs" aria-label="Views">
-    <a href="#/overview" data-view="overview">Overview</a>
-    <a href="#/stocks" data-view="stocks">My stocks</a>
+    <a href="#/command" data-view="command">Command Center</a>
+    <a href="#/recs" data-view="recs">Recommendations</a>
+    <a href="#/opps" data-view="opps">Opportunities</a>
+    <a href="#/overview" data-view="overview">Market Intelligence</a>
+    <a href="#/earnings2" data-view="earnings2">Earnings Intelligence</a>
+    <a href="#/book" data-view="book">Position Book</a>
+    <a href="#/log" data-view="log">Decision Log</a>
     <details class="more-nav"><summary>More</summary><div class="more-menu">
-      <a href="#/market" data-view="market">Market detail</a>
-      <a href="#/earnings" data-view="earnings">Earnings</a>
-      <a href="#/opportunities" data-view="opportunities">Opportunities</a>
+      <a href="#/stocks" data-view="stocks">My Stocks</a>
+      <a href="#/opportunities" data-view="opportunities">Setup Pipeline</a>
+      <a href="#/earnings" data-view="earnings">Earnings Calendar</a>
+      <a href="#/ops" data-view="ops">Research Operations</a>
+      <a href="#/market" data-view="market">Market Detail</a>
       <a href="#/oversold" data-view="oversold">Oversold</a>
       <a href="#/discovery" data-view="discovery">Discovery</a>
       <a href="#/reports" data-view="reports">Reports</a>
-      <a href="#/track" data-view="track">Track record</a>
+      <a href="#/track" data-view="track">Track Record</a>
     </div></details>
   </nav>
   <div class="jump-wrap"><input id="jump" list="jump-list" type="search" placeholder="Find a stock  /" aria-label="Find a stock by ticker" autocomplete="off" spellcheck="false"><datalist id="jump-list"></datalist></div>
@@ -53,6 +60,6 @@
 </footer>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js" defer></script>
-<script src="app.js?v=e09b39e30075"></script>
+<script src="app.js?v=ee1bc4383072"></script>
 </body>
 </html>
