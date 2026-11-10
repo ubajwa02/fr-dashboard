@@ -168,7 +168,7 @@ input[type=search], select { background: var(--panel); border: 1px solid var(--l
 .foot { max-width: 1320px; margin: 0 auto; padding: 16px 24px 32px; color: var(--faint); font-size: 11px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 
 /* responsive */
-@media (max-width: 1200px) {
+@media (max-width: 1680px) {   /* tabs get their own row: at laptop widths the last tabs were hidden in a scroll with no scrollbar */
   .topbar { flex-wrap: wrap; height: auto; padding: 8px 16px; row-gap: 4px; }
   .tabs { order: 3; flex-basis: 100%; }
   .status { margin-left: auto; }
