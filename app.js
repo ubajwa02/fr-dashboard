@@ -1388,11 +1388,11 @@ function vixGauge(v) {
 function boardHtml(rows) {
   return `<div class="tbl-wrap board-tbl"><table class="sortable vtable"><thead><tr><th>Stock</th><th class="num">Price</th><th class="num">Day</th><th>1 Month</th><th>Long-Term</th><th>To Buy-Below</th><th>Swing</th><th>Trigger</th><th>Earnings</th></tr></thead><tbody>
     ${rows.map((r) => `<tr data-open="${esc(r.ticker)}" tabindex="0"><td><b class="tk">${esc(r.ticker)}</b>${r.veto ? ` <span class="vb vb-bad" title="${esc(r.veto.join("; "))}">Veto</span>` : ""}</td>
-      <td class="num">${money2(r.price)}</td><td class="num ${dirCls(r.day_pct)}" data-v="${r.day_pct ?? -999}">${pct(r.day_pct)}</td><td>${spark(r.spark, 96, 26)}</td>
+      <td class="num">${money2(r.price)}${r.intraday ? `<div class="intra">${money2(r.intraday.price)} ${esc(r.intraday.label)}</div>` : ""}</td><td class="num ${dirCls(r.day_pct)}" data-v="${r.day_pct ?? -999}">${pct(r.day_pct)}</td><td>${spark(r.spark, 96, 26)}</td>
       <td data-v="${esc(ltLabel(r.longterm))}">${ltBadge(r.longterm)}</td><td data-v="${r.dist_to_buy_pct ?? 999}">${distBar(r)}</td>
       <td data-v="${esc(r.swing)}">${vBadge(r.swing)}</td><td class="trig">${esc((r.trigger || "").replace(/^Wait for /, "").replace(/\.$/, "")) || "—"}</td><td data-v="${esc(r.earnings || "9999")}">${earnChip(r.earnings)}</td></tr>`).join("")}
     </tbody></table></div>
-    <div class="board-cards">${rows.map((r) => `<button class="bcard" data-open="${esc(r.ticker)}"><div class="bc-top"><b class="tk">${esc(r.ticker)}</b><span class="num">${money2(r.price)}</span><span class="num ${dirCls(r.day_pct)}">${pct(r.day_pct)}</span>${spark(r.spark, 84, 24)}</div>
+    <div class="board-cards">${rows.map((r) => `<button class="bcard" data-open="${esc(r.ticker)}"><div class="bc-top"><b class="tk">${esc(r.ticker)}</b><span class="num">${money2(r.price)}${r.intraday ? `<span class="intra">${money2(r.intraday.price)} ${esc(r.intraday.label)}</span>` : ""}</span><span class="num ${dirCls(r.day_pct)}">${pct(r.day_pct)}</span>${spark(r.spark, 84, 24)}</div>
       <div class="bc-badges"><div><span class="bc-l">Long-term</span>${ltBadge(r.longterm)}</div><div><span class="bc-l">Swing</span>${vBadge(r.swing)}</div></div>
       ${r.trigger || r.earnings ? `<div class="bc-trig">${r.trigger ? esc(r.trigger.replace(/\.$/, "")) : ""}${r.earnings ? ` ${earnChip(r.earnings)}` : ""}</div>` : ""}</button>`).join("")}</div>`;
 }
@@ -1610,6 +1610,7 @@ function stockHeadV3(c, row, sc) {
   const st = { good: "s-good", mixed: "s-mixed", bad: "s-bad", none: "s-none" };
   const glyph = (a) => (a.veto ? "⊘" : a.stance > 0 ? "▲" : a.stance < 0 ? "▼" : "●");
   return `<section class="sh3" aria-label="Verdicts">
+    ${row && row.intraday ? `<p class="intra">Last close ${money2(row.price)}; ${money2(row.intraday.price)} ${esc(row.intraday.label)} (not a close: scores and levels use the last close).</p>` : ""}
     ${row ? `<div class="sh3-badges"><div><span class="bc-l">Long-term</span>${ltBadge(row.longterm)}</div><div><span class="bc-l">Swing</span>${vBadge(row.swing)}</div>
       ${row.trigger ? `<div class="sh3-trig"><span class="bc-l">Trigger</span><b>${esc(row.trigger.replace(/^Wait for /, "").replace(/\.$/, ""))}</b></div>` : ""}
       ${row.earnings ? `<div><span class="bc-l">Earnings</span>${earnChip(row.earnings)}</div>` : ""}</div>` : ""}

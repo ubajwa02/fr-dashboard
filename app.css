@@ -1052,3 +1052,5 @@ main { max-width: 1240px; padding-top: 32px; }
 /* the top bar keeps every tab visible: the run timestamps live in the footer area on narrower screens */
 @media (min-width: 641px) and (max-width: 1679px) { #updated, #countdown { display: none; } }
 .vl-lines .vb { justify-self: start; }
+.intra { display: block; font-size: 13px; color: var(--faint); font-weight: 400; white-space: nowrap; }
+@media (max-width: 640px) { .intra { white-space: normal; } }
