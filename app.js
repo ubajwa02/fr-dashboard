@@ -745,9 +745,9 @@ const TA_ALL = new URLSearchParams(location.search).get("ta") === "all";   // re
 const TF_DAYS = { "1M": 21, "3M": 63, "6M": 126, "1Y": 252, "5Y": 1300 };
 
 function taRows(a, weekly) {
-  if (weekly) return (a.weekly_bars || []).map((b) => ({ ...b }));
+  if (weekly) return (a.weekly_bars || []).map((b) => ({ ...b, volume: b.vol }));
   const s = a.series, out = [];
-  for (let i = 0; i < s.time.length; i++) out.push({ time: s.time[i], open: s.open[i], high: s.high[i], low: s.low[i], close: s.close[i], volume: s.volume[i],
+  for (let i = 0; i < s.time.length; i++) out.push({ time: s.time[i], open: s.open[i], high: s.high[i], low: s.low[i], close: s.close[i], volume: s.vol[i],
     sma20: s.sma20[i], sma50: s.sma50[i], sma200: s.sma200[i], bbu: s.bb_upper[i], bbl: s.bb_lower[i], rsi: s.rsi[i], macd: s.macd[i], sig: s.macd_signal[i], hist: s.macd_hist[i] });
   return out;
 }
