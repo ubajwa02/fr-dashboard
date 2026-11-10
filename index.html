@@ -3,29 +3,32 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fundamental Researcher</title>
-<link rel="stylesheet" href="app.css?v=81ab9371b704">
+<title>Fundamentalist</title>
+<link rel="stylesheet" href="app.css?v=87ed9192bb9d">
 <script>
   try { const t = localStorage.getItem("fr-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
 </script>
-<script>window.FR_STATIC = {"asof": "2026-11-10 05:46 UTC"};</script>
+<script>window.FR_STATIC = {"asof": "2026-11-10 06:38 UTC"};</script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
-<div class="snapshot-banner" role="note">Read-only snapshot, updated 2026-11-10 05:46 UTC. Research, not advice. Scores, news and prices do not update until the next snapshot.</div>
+<div class="snapshot-banner" role="note">Read-only snapshot, updated 2026-11-10 06:38 UTC. Research, not advice. Scores, news and prices do not update until the next snapshot.</div>
 <header class="topbar">
-  <div class="brand" aria-label="Fundamental Researcher">
-    <span class="logo" aria-hidden="true">◆</span><span class="brand-name">Fundamental<b>Researcher</b></span>
+  <div class="brand" aria-label="Fundamentalist">
+    <span class="logo" aria-hidden="true">◆</span><span class="brand-name">Fundamentalist</span>
   </div>
   <nav class="tabs" aria-label="Views">
+    <a href="#/overview" data-view="overview">Overview</a>
     <a href="#/stocks" data-view="stocks">My stocks</a>
-    <a href="#/earnings" data-view="earnings">Earnings</a>
-    <a href="#/market" data-view="market">Market</a>
-    <a href="#/opportunities" data-view="opportunities">Opportunities</a>
-    <a href="#/discovery" data-view="discovery">Discovery</a>
-    <a href="#/oversold" data-view="oversold">Oversold</a>
-    <a href="#/reports" data-view="reports">Reports</a>
-    <a href="#/track" data-view="track">Track record</a>
+    <details class="more-nav"><summary>More</summary><div class="more-menu">
+      <a href="#/market" data-view="market">Market detail</a>
+      <a href="#/earnings" data-view="earnings">Earnings</a>
+      <a href="#/opportunities" data-view="opportunities">Opportunities</a>
+      <a href="#/oversold" data-view="oversold">Oversold</a>
+      <a href="#/discovery" data-view="discovery">Discovery</a>
+      <a href="#/reports" data-view="reports">Reports</a>
+      <a href="#/track" data-view="track">Track record</a>
+    </div></details>
   </nav>
   <div class="jump-wrap"><input id="jump" list="jump-list" type="search" placeholder="Find a stock  /" aria-label="Find a stock by ticker" autocomplete="off" spellcheck="false"><datalist id="jump-list"></datalist></div>
   <div class="status">
@@ -50,6 +53,6 @@
 </footer>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js" defer></script>
-<script src="app.js?v=81ab9371b704"></script>
+<script src="app.js?v=87ed9192bb9d"></script>
 </body>
 </html>

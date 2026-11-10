@@ -1,4 +1,4 @@
-/* Fundamental Researcher UI. Vanilla JS; all data comes from the local /api endpoints. */
+/* Fundamentalist UI (product name: fr.PRODUCT_NAME). Vanilla JS; all data comes from the local /api endpoints. */
 "use strict";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -12,7 +12,16 @@ const CAT = {
   "TACTICAL ONLY": ["WAIT", "↗"], "WATCH": ["EVENT", "◷"], "EVENT RISK": ["EVENT", "⚑"], "INSUFFICIENT DATA": ["NODATA", "?"], "NO EDGE": ["NOEDGE", "–"], "AVOID": ["AVOID", "✕"],
   BUY: ["BUY", "▲"], WAIT: ["WAIT", "◷"], BEARISH: ["BEARISH", "▼"],
 };
-const badge = (v) => { const [cls, ic] = CAT[v] || ["WAIT", ""]; return `<span class="badge ${cls}" aria-label="Verdict ${esc(v)}">${ic} ${esc(v || "—")}</span>`; };
+/* Capitalisation rule (docs/DESIGN.md): sentence case for every label; tickers and real acronyms stay upper case. */
+const ACRONYMS = new Set(["SPY", "QQQ", "VIX", "RSI", "MACD", "CPI", "PPI", "PCE", "GDP", "ATR", "EPS", "ETF", "FOMC", "SEC", "FRED", "YoY", "AI", "US", "USD", "ETFs", "IV", "DCF", "P/E", "P/S", "HY", "BLS", "BEA", "JOLTS", "TTM", "QoQ"]);
+const sc = (v) => {
+  if (v == null) return v;
+  const t = String(v);
+  if (t !== t.toUpperCase() || !/[A-Z]{2}/.test(t)) return t;                 // already mixed case: leave it
+  const out = t.split(/(\s+)/).map((w) => (ACRONYMS.has(w) ? w : w.toLowerCase())).join("");
+  return out.charAt(0).toUpperCase() + out.slice(1);
+};
+const badge = (v) => { const [cls, ic] = CAT[v] || ["WAIT", ""]; return `<span class="badge ${cls}" aria-label="Verdict ${esc(sc(v))}">${ic} ${esc(sc(v) || "—")}</span>`; };
 const GLOSS = {
   "price vs sales": "Company value divided by a year of sales. Higher means you pay more for each dollar the company sells.",
   "free cash": "Cash left after running the business and paying for new equipment. It can fund dividends, buybacks or growth.",
@@ -21,9 +30,9 @@ const GLOSS = {
   "P/E": "Price divided by a year of profit per share. Higher means investors pay more for each dollar of profit.",
 };
 const gloss = (t) => { let h = esc(t); for (const [k, v] of Object.entries(GLOSS)) { const i = h.indexOf(k); if (i >= 0) h = h.slice(0, i) + `<abbr title="${esc(v)}" tabindex="0">${k}</abbr>` + h.slice(i + k.length); } return h; };
-const TAG = (t) => t ? `<span class="etag ${esc(t)}" title="${t === "FACT" ? "From SEC filings or price history" : t === "ESTIMATE" ? "From estimates, consensus or a model" : "A conclusion the system draws"}">${esc(t)}</span>` : "";
+const TAG = (t) => t ? `<span class="etag ${esc(t)}" title="${t === "FACT" ? "From SEC filings or price history" : t === "ESTIMATE" ? "From estimates, consensus or a model" : "A conclusion the system draws"}">${esc(sc(t))}</span>` : "";
 const GRADE_CLS = { A: "BUY", B: "BUY", C: "WAIT", D: "AVOID", F: "AVOID" };
-const gradeBadge = (f) => f.kind === "etf" ? `<span class="badge DEV" aria-label="Market fund">◎ FUND</span>` :
+const gradeBadge = (f) => f.kind === "etf" ? `<span class="badge DEV" aria-label="Market fund">◎ Fund</span>` :
   `<span class="badge ${GRADE_CLS[f.grade] || "NODATA"}" aria-label="Business grade ${esc(f.grade || "not available")}">${esc(f.grade || "?")}</span>`;
 const dateFmt = (iso, opts = { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) => (iso ? new Date(iso).toLocaleString(undefined, opts) : "—");
 
@@ -305,7 +314,12 @@ function ledgerHtml(l, minSample) {
 function reportHtml(r, label) {
   if (!r) return `<div class="rep"><h3>${esc(label)}</h3><p class="faint">Not generated yet.</p></div>`;
   const items = (xs) => `<ul>${xs.map((x) => `<li>${esc(x.text)} ${TAG(x.tag)}</li>`).join("")}</ul>`;
-  return `<div class="rep"><h3>${esc(r.title)}</h3><p class="rep-v">${esc(r.verdict.text)} ${TAG(r.verdict.tag)}</p>
+  const dl = (r.daily || []).length ? `<details open><summary>Today's charts: the read and tomorrow's watch</summary><div class="rp-daily">${r.daily.map((d) => `
+      <figure class="rp-fig"><figcaption><b>${esc(d.ticker)}</b> <span class="num ${dirCls(d.change_1d)}">${pct(d.change_1d)}</span></figcaption>
+      <div class="rp-chart" data-t="${esc(d.ticker)}" data-i="${r.daily.indexOf(d)}"></div>${dailyHtml(d)}</figure>`).join("")}</div></details>` : "";
+  setTimeout(() => document.querySelectorAll(".rp-chart").forEach((el) => drawMini(el, r.daily[+el.dataset.i])), 0);
+  return `<div class="rep"><h3>${esc(r.title)}</h3>${r.headline ? `<p class="rep-h">${esc(r.headline)}</p>` : ""}<p class="rep-v">${esc(r.verdict.text)} ${TAG(r.verdict.tag)}</p>
+    ${dl}
     ${r.sections.map((s, i) => `<details${i === 0 ? " open" : ""}><summary>${esc(s.title)}</summary>${items(s.items)}</details>`).join("")}
     ${(r.stocks || []).length ? `<details><summary>Priority stocks: ${r.stocks.map((s) => esc(s.subject)).join(", ")}</summary>${r.stocks.map((s) => `<h4>${esc(s.subject)}</h4>${items(s.items)}`).join("")}<p class="faint">${esc(r.stocks_note || "")}</p></details>` : ""}
     <p class="faint" style="font-size:11px;margin:6px 0 0">Saved ${esc(dateFmt(r.created_at))}. Built by fixed rules from stored records; saved reports are never edited.</p></div>`;
@@ -423,7 +437,7 @@ async function viewTrack(main) {
     ${perfHtml(pf)}
     <h2>Max drawdown per call</h2><p class="sub">Worst move against each evaluated call before its horizon ended (longest matured horizon).</p>
     <div class="tbl-wrap"><table><thead><tr><th>When</th><th>Ticker</th><th>Call</th><th>Horizon</th><th>Return</th><th>vs QQQ</th><th>Max drawdown</th><th>Beat QQQ</th><th>Raw direction</th></tr></thead><tbody>
-    ${(t.drawdowns || []).map((r) => `<tr><td class="num">${esc(dateFmt(r.created_at))}</td><td><b>${esc(r.ticker)}</b></td><td>${esc(r.classification)}</td><td>${r.horizon_days}d</td>
+    ${(t.drawdowns || []).map((r) => `<tr><td class="num">${esc(dateFmt(r.created_at))}</td><td><b>${esc(r.ticker)}</b></td><td>${esc(sc(r.classification))}</td><td>${r.horizon_days}d</td>
       <td class="num ${dirCls(r.ret)}">${pct(r.ret)}</td><td class="num ${dirCls(r.excess_qqq)}">${pct(r.excess_qqq)}</td><td class="num ${dirCls(r.max_drawdown_pct)}">${pct(r.max_drawdown_pct)}</td><td>${r.hit_vs_qqq == null ? "—" : r.hit_vs_qqq ? "yes" : "no"}</td><td class="faint">${r.hit == null ? "—" : r.hit ? "yes" : "no"}</td></tr>`).join("")
       || `<tr><td colspan="9" class="empty">No evaluated buy or bearish calls yet.</td></tr>`}</tbody></table></div>
     ${evaluated < t.min_sample ? `<div class="notice">Small sample: ${evaluated} call(s) evaluated so far. No performance claim is made until at least ${t.min_sample} independent calls have results.</div>` : ""}
@@ -443,7 +457,7 @@ async function viewTrack(main) {
       || `<tr><td colspan="7" class="empty">No back-test yet.</td></tr>`}</tbody></table></div>
     <p class="faint" style="font-size:12px">Weak, not validated: overlapping horizons and today's universe (survivorship). News and social inputs are not available historically.</p>
     <h2>Recent calls</h2><div class="tbl-wrap"><table><thead><tr><th>When</th><th>Ticker</th><th>Call</th><th>Price</th><th>F</th><th>S</th><th>Signal agreement</th></tr></thead><tbody>
-    ${t.recent.map((r) => `<tr><td class="num">${esc(dateFmt(r.created_at))}</td><td><b>${esc(r.ticker)}</b></td><td>${esc(r.classification)}</td><td class="num">${money(r.price)}</td>
+    ${t.recent.map((r) => `<tr><td class="num">${esc(dateFmt(r.created_at))}</td><td><b>${esc(r.ticker)}</b></td><td>${esc(sc(r.classification))}</td><td class="num">${money(r.price)}</td>
       <td class="num">${r.fscore == null ? "—" : Math.round(r.fscore)}</td><td class="num">${r.sscore == null ? "—" : Math.round(r.sscore)}</td><td>${esc(r.signal_agreement)}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
@@ -705,6 +719,35 @@ function stepStock(dir) {
   openStock(o[(i + dir + o.length) % o.length]);
 }
 
+/* Small daily chart with the levels to watch (post-market review). Daily closes only. */
+async function drawMini(el, d) {
+  if (!window.LightweightCharts || !el || !d || el.dataset.done) return;
+  el.dataset.done = 1;
+  const p = await load(`/api/prices/${d.ticker}?days=90`);
+  const css = getComputedStyle(document.documentElement), v = (k) => css.getPropertyValue(k).trim();
+  const x = d.expect || {};
+  levelChart(el, p.bars, (x.above || []).concat(x.below || []).map((l) => ({ name: l.label, price: l.price })),
+    { color: v("--series-1"), averages: [["sma50", v("--series-1")], ["sma200", v("--series-2")]] });
+}
+
+/* Daily analysis: the read and next session's watch list, beside the chart (fr/daily.py rules). */
+function dailyHtml(d) {
+  if (!d || d.error) return "";
+  const x = d.expect || {};
+  return `<section class="daily" aria-label="Daily analysis"><div class="daily-read"><h3>The read</h3>
+      <ul>${(d.read || []).map((r) => `<li><b>${esc(r.what)}.</b> ${esc(r.means)} ${TAG(r.tag)}</li>`).join("") || `<li class="faint">Nothing stands out in the daily technicals.</li>`}</ul></div>
+    <div class="daily-next"><h3>Next session</h3>
+      ${x.range ? `<p class="rng"><b>±${x.range.pct}%</b> typical day <span class="faint">($${x.range.low.toFixed(2)} to $${x.range.high.toFixed(2)})</span></p>` : ""}
+      <ul>${(x.if || []).map((l) => `<li>${esc(l)}</li>`).join("")}${(x.events || []).map((e) => `<li><b>Scheduled:</b> ${esc(e)}</li>`).join("")}</ul>
+      <p class="dir">${esc(x.direction_note || "")}</p></div>
+    <p class="faint small daily-note">${esc(d.note)} As of the ${esc(d.asof || "")} close.</p></section>`;
+}
+
+/* Redesign: detail sections start collapsed under a plain title; an empty section is left out. */
+function fold(title, html, open) {
+  return html && html.trim() ? `<details class="fold"${open ? " open" : ""}><summary>${esc(title)}</summary>${html}</details>` : "";
+}
+
 async function openStock(t) {
   t = String(t || "").toUpperCase().trim();
   if (!t) return;
@@ -718,7 +761,7 @@ async function openStock(t) {
       openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(t)}</span></div><p class="muted" style="margin-top:12px">${esc(d.error)}</p>`);
       return;
     }
-    c = c || d.card; kn = d.keynums; mentor = d.mentor; scen = d.scenarios; extra = { levels: d.levels, moves: d.moves_with, challenge: d.challenge, oc: d.options_check, thesis: d.thesis };
+    c = c || d.card; kn = d.keynums; mentor = d.mentor; scen = d.scenarios; extra = { levels: d.levels, moves: d.moves_with, challenge: d.challenge, oc: d.options_check, thesis: d.thesis, daily: d.daily };
   } catch (e) {
     if (!c) { openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(t)}</span></div><div class="err">Could not load this stock: ${esc(e.message)}</div>`); return; }
   }
@@ -726,16 +769,19 @@ async function openStock(t) {
   openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(c.ticker)}</span><span class="muted">${esc(c.name)}</span></div>
     <div class="dh"><span class="px num">${money(c.price)}</span><span class="num ${dirCls(c.change_1d)}">${pct(c.change_1d)} last session</span></div>
     ${asofHtml(c, kn)}
+    <section class="verdict-box" aria-label="Verdict"><div class="biz">${gradeBadge(f)} <span class="hl">${esc(f.headline)}</span></div>
+      ${c.todo ? `<p class="todo-line"><b>What to do:</b> ${esc(c.todo)}</p>` : ""}
+      <p class="faint" style="font-size:12px">Default is no action: nothing here has a proven edge.</p></section>
     ${mattersHtml(c.impact)}
-    ${mentorHtml(c.ticker, mentor)}
-    ${challengeHtml(extra.challenge)}
-    ${thesisHtml(extra.thesis)}
-    ${optionsCheckHtml(extra.oc)}
-    ${tiesHtml(extra)}
-    ${scenariosHtml(scen)}
-    ${keyNumbersHtml(kn)}
-    ${kn && kn.story ? `<section class="story" aria-label="Earnings story"><h3>Earnings story</h3><p>${esc(kn.story)} ${TAG("INFERENCE")}</p></section>` : ""}
     <div id="chart-box"></div>
+    ${dailyHtml(extra.daily)}
+    ${fold("Pros, cons and questions (Mentor)", mentorHtml(c.ticker, mentor))}
+    ${fold("The case against (Challenge)", challengeHtml(extra.challenge))}
+    ${fold("Long-term view and value range", thesisHtml(extra.thesis))}
+    ${fold("Options check", optionsCheckHtml(extra.oc), true)}
+    ${fold("Key levels and what it moves with", tiesHtml(extra))}
+    ${fold("Scenarios: breakout, range, breakdown", scenariosHtml(scen))}
+    ${fold("Key numbers and earnings story", keyNumbersHtml(kn) + (kn && kn.story ? `<section class="story" aria-label="Earnings story"><h3>Earnings story</h3><p>${esc(kn.story)} ${TAG("INFERENCE")}</p></section>` : ""))}
     <details class="all-details" id="all-details"><summary>All details${c.impact && c.impact.n_rest ? `: ${c.impact.n_rest} smaller finding${c.impact.n_rest === 1 ? "" : "s"} and the full analysis` : ": the full analysis"}</summary>
     ${briefSlot}
     <div class="todo-big"><div class="biz">${gradeBadge(f)} <span class="hl">${esc(f.headline)}</span></div>
@@ -772,7 +818,7 @@ async function openStock(t) {
     ${(c.impact && c.impact.rest.length) ? `<div class="sec"><h3>Smaller findings</h3><ul class="impact">${c.impact.rest.map((i) => `<li title="What would change this: ${esc(i.change)}">${itemHead(i)} ${esc(i.so_what)}</li>`).join("")}</ul></div>` : ""}
     </details>`);
   fillBrief(c.ticker);
-  drawChart(c.ticker, lv);
+  drawChart(c.ticker, lv, extra.daily);
 }
 
 function openEarnings(r) {
@@ -790,38 +836,34 @@ function openEarnings(r) {
 
 function chartOpts(el) {
   const css = getComputedStyle(document.documentElement), v = (k) => css.getPropertyValue(k).trim();
-  return { width: el.clientWidth, height: el.clientHeight, layout: { background: { color: "transparent" }, textColor: v("--muted"), fontFamily: "Inter" },
+  return { width: el.clientWidth, height: el.clientHeight, layout: { background: { color: "transparent" }, textColor: v("--muted"), fontFamily: "Source Sans 3, -apple-system, sans-serif", fontSize: 12 },
     grid: { vertLines: { color: v("--line") }, horzLines: { color: v("--line") } }, rightPriceScale: { borderColor: v("--line") },
     timeScale: { borderColor: v("--line") }, crosshair: { mode: 0 } };
 }
-async function drawChart(t, lv) {
+async function drawChart(t, lv, daily) {
   const box = $("#chart-box"); if (!box) return;
   box.innerHTML = `<div class="sec"><h3>Price</h3><div class="ranges" role="group" aria-label="Chart range">${["1M", "3M", "6M", "1Y"].map((r) => `<button class="btn ${r === "6M" ? "on" : ""}" data-r="${r}">${r}</button>`).join("")}</div>
-    <div class="chart" id="chart" role="img" aria-label="${esc(t)} daily candlestick chart with moving averages"></div>
-    <div class="legend"><span><i style="background:#f5a524"></i>20-day</span><span><i style="background:#5b8cff"></i>50-day</span><span><i style="background:#a78bfa"></i>200-day</span>
-    ${lv ? `<span><i style="background:var(--up)"></i>entry</span><span><i style="background:var(--down)"></i>stop</span><span><i style="background:#38bdf8"></i>target</span>` : ""}</div></div>`;
+    <div class="chart" id="chart" role="img" aria-label="${esc(t)} daily candles with volume, moving averages and levels to watch"></div>
+    <div class="legend"><span><i style="background:var(--series-3)"></i>20-day</span><span><i style="background:var(--series-1)"></i>50-day</span><span><i style="background:var(--series-2)"></i>200-day</span><span><i class="dash"></i>levels to watch (named at the right)</span></div>
+    <div class="lvl-host"></div></div>`;
   if (!window.LightweightCharts) { $("#chart").innerHTML = `<div class="empty">Chart library unavailable (offline?).</div>`; return; }
   let d; try { d = await load(`/api/prices/${t}?days=260`); } catch (e) { $("#chart").innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
   if (!d.bars.length) { $("#chart").innerHTML = `<div class="empty">No price data.</div>`; return; }
-  const el = $("#chart");
-  if (state.chart) state.chart.remove();
-  const ch = state.chart = LightweightCharts.createChart(el, chartOpts(el));
-  const css = getComputedStyle(document.documentElement);
-  const cs = ch.addCandlestickSeries({ upColor: css.getPropertyValue("--up").trim(), downColor: css.getPropertyValue("--down").trim(),
-    wickUpColor: css.getPropertyValue("--up").trim(), wickDownColor: css.getPropertyValue("--down").trim(), borderVisible: false });
-  cs.setData(d.bars.map((b) => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close })));
-  [["sma20", "#f5a524"], ["sma50", "#5b8cff"], ["sma200", "#a78bfa"]].forEach(([k, col]) =>
-    ch.addLineSeries({ color: col, lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false }).setData(d.bars.filter((b) => b[k] != null).map((b) => ({ time: b.time, value: b[k] }))));
-  if (lv) {
-    const line = (p, col, title) => cs.createPriceLine({ price: p, color: col, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title });
-    line(lv.entry_low, css.getPropertyValue("--up").trim(), "entry"); line(lv.entry_high, css.getPropertyValue("--up").trim(), "");
-    line(lv.invalidation, css.getPropertyValue("--down").trim(), "stop"); line(lv.target1, "#38bdf8", "target");
-  }
-  const setRange = (r) => { const n = { "1M": 21, "3M": 63, "6M": 126, "1Y": 252 }[r]; const bars = d.bars;
+  const css = getComputedStyle(document.documentElement), v = (k) => css.getPropertyValue(k).trim();
+  const x = (daily && daily.expect) || {};
+  const levels = (x.above || []).concat(x.below || []).map((l) => ({ name: l.label, price: l.price, explain: l.explain }));
+  const defs = (daily && daily.definitions) || {};
+  if (lv) [["buy zone", lv.entry_high], ["exit if below", lv.invalidation], ["first target", lv.target1]].forEach(([n, p]) => p != null && levels.push({ name: n, price: p,
+    explain: `${n.charAt(0).toUpperCase() + n.slice(1)}, $${Number(p).toFixed(2)}: ${defs[n] || "a reference level"}. A fixed price from the rules, recalculated when the setup changes.` }));
+  const last = d.bars[d.bars.length - 1].close;
+  const setRange = (ch, r = "6M") => { const n = { "1M": 21, "3M": 63, "6M": 126, "1Y": 252 }[r]; const bars = d.bars;
     ch.timeScale().setVisibleRange({ from: bars[Math.max(0, bars.length - n)].time, to: bars[bars.length - 1].time }); };
-  setRange("6M");
-  box.querySelectorAll("[data-r]").forEach((b) => b.addEventListener("click", () => { box.querySelectorAll("[data-r]").forEach((x) => x.classList.toggle("on", x === b)); setRange(b.dataset.r); }));
-  new ResizeObserver(() => state.chart === ch && ch.applyOptions({ width: el.clientWidth })).observe(el);
+  if (state.chart) { try { state.chart.remove(); } catch (e) { /* already gone */ } }
+  const { ch } = levelChart($("#chart"), d.bars, levels, { candles: true, volume: true, interactive: true, range: (c) => setRange(c),
+    averages: [["sma20", v("--series-3")], ["sma50", v("--series-1")], ["sma200", v("--series-2")]] });
+  state.chart = ch;
+  box.querySelector(".lvl-host").innerHTML = levelList(levels, last) + (x.range ? `<p class="faint small">Typical one-day range: ${x.range.low.toFixed(2)} to ${x.range.high.toFixed(2)} (±${x.range.pct}%).</p>` : "");
+  box.querySelectorAll("[data-r]").forEach((b) => b.addEventListener("click", () => { box.querySelectorAll("[data-r]").forEach((y) => y.classList.toggle("on", y === b)); setRange(ch, b.dataset.r); }));
 }
 
 /* ------------------------------------------------------------------ boot */
@@ -863,18 +905,218 @@ async function viewOversold(main) {
   main.querySelectorAll("[data-open]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); openStock(a.dataset.open); }));
 }
 
-const VIEWS = { stocks: viewStocks, earnings: viewEarnings, market: viewMarket, opportunities: viewOpps, oversold: viewOversold, reports: viewReports, track: viewTrack, discovery: viewDiscovery, ops: viewOps, settings: viewSettings };
+/* ------------------------------------------------------------------ overview (market first) */
+/* A market cockpit, not a document: each widget shows the state, says what it means and what to watch.
+   Rules live in fr/overview.py (trend vs 50/200-day, VIX bands, levels the existing checks already use). */
+const sgn = (x, d = 2) => (x >= 0 ? "+" : "−") + Math.abs(x).toFixed(d);
+function sparkSvg(v, w = 120, h = 34) {
+  if (!v || v.length < 2) return "";
+  const lo = Math.min(...v), hi = Math.max(...v), r = hi - lo || 1;
+  const pts = v.map((x, i) => `${(i / (v.length - 1) * w).toFixed(1)},${(h - 2 - (x - lo) / r * (h - 4)).toFixed(1)}`).join(" ");
+  return `<svg class="spk ${v[v.length - 1] >= v[0] ? "up" : "dn"}" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true"><polyline points="${pts}"/></svg>`;
+}
+/* Level rail: the price among the levels that matter, each with its distance. Replaces a levels table. */
+function railHtml(s) {
+  if (!s) return "";
+  const lv = [["1-month low", s.low20], ["200-day average", s.sma200], ["50-day average", s.sma50], ["1-month high", s.high20]].filter(([, x]) => x != null);
+  const all = lv.map(([, x]) => x).concat(s.close), lo = Math.min(...all), hi = Math.max(...all), pad = (hi - lo) * 0.06 || 1;
+  const pos = (x) => ((x - lo + pad) / (hi - lo + 2 * pad) * 100).toFixed(2);
+  const ticks = lv.map(([n, x], i) => { const d = (x / s.close - 1) * 100;
+    return `<div class="rk ${i % 2 ? "b" : "t"}" style="left:${pos(x)}%"><span class="tn">${esc(n)}</span><span class="tv">${money(x)}</span><span class="td ${d >= 0 ? "arw-up" : "arw-down"}">${sgn(d)}%</span></div>`; }).join("");
+  return `<div class="rail rail-${esc(s.trend || "none")}" role="img" aria-label="${esc(s.ticker)} at ${money(s.close)} against its 20-day low and high and 50- and 200-day averages">
+    <div class="track"></div>${ticks}<div class="dot" style="left:${pos(s.close)}%"><span>${money(s.close)}</span></div></div>`;
+}
+function vixHtml(v) {
+  if (!v) return `<p class="faint">VIX not available.</p>`;
+  const lo = 10, hi = 40, pos = (x) => Math.max(0, Math.min(100, (x - lo) / (hi - lo) * 100));
+  const bands = v.bands.map(([a, b, n]) => `<div class="band band-${n}" style="left:${pos(Math.max(a, lo))}%;width:${pos(Math.min(b, hi)) - pos(Math.max(a, lo))}%"><span>${n}</span></div>`).join("");
+  return `<div class="gauge-head"><b class="big">${v.value.toFixed(1)}</b><span class="chip chip-${esc(v.label)}">${esc(v.label)}</span></div>
+    <div class="fearbar" role="img" aria-label="VIX ${v.value} on a scale from 10 to 40; past-year range ${v.min} to ${v.max}">${bands}
+      <div class="yr" style="left:${pos(v.min)}%;width:${pos(v.max) - pos(v.min)}%" title="Past year: ${v.min}–${v.max}"></div><div class="mk" style="left:${pos(v.value)}%"></div></div>
+    <p class="means">${v.chg5 >= 2 ? "Up" : v.chg5 <= -2 ? "Down" : "Little changed"}${Math.abs(v.chg5) >= 2 ? ` ${Math.abs(v.chg5).toFixed(1)} points in a week` : " this week"}. Higher than ${v.pct}% of the past year's readings${v.label === "elevated" || v.label === "high" ? ": investors are paying up for protection." : "."}</p>
+    <p class="faint small">${esc(v.rule)}. FRED, ${esc(v.date)}.</p>`;
+}
+/* Level labels live in a gutter beside the plot, never on it (dataviz: selective direct labels, no
+   collisions). Nearby levels (within 0.3%) merge into one label; labels are nudged apart (min 18px) and joined
+   to their true price by a short leader. Lines on the plot are thin and muted so price stays the strongest mark.
+   The distance and meaning of every level go in the list under the chart. */
+const LABEL_GAP = 18;
+function mergeLevels(levels, last) {
+  const xs = levels.filter((l) => l.price != null).sort((a, b) => b.price - a.price), out = [];
+  xs.forEach((l) => { const p = out[out.length - 1];
+    if (p && Math.abs(p.price / l.price - 1) < 0.003) { p.name += " / " + l.name; p.price = (p.price + l.price) / 2; }
+    else out.push({ ...l }); });
+  return out.map((l) => ({ ...l, dist: (l.price / last - 1) * 100 }));
+}
+function pickLevels(levels, last, perSide) {
+  const up = levels.filter((l) => l.price >= last).sort((a, b) => a.price - b.price).slice(0, perSide);
+  const dn = levels.filter((l) => l.price < last).sort((a, b) => b.price - a.price).slice(0, perSide);
+  return up.concat(dn);
+}
+function placeLabels(items, height) {             // items: [{y}] -> adds ly (label y), no two closer than LABEL_GAP
+  const xs = items.filter((i) => i.y != null).sort((a, b) => a.y - b.y);
+  xs.forEach((it, i) => { it.ly = Math.max(it.y, i ? xs[i - 1].ly + LABEL_GAP : 9); });
+  for (let i = xs.length - 1; i >= 0; i--) { const max = i === xs.length - 1 ? height - 9 : xs[i + 1].ly - LABEL_GAP; if (xs[i].ly > max) xs[i].ly = max; }
+  return xs;
+}
+function levelChart(host, bars, levels, opts = {}) {
+  host.innerHTML = `<div class="lc"><div class="lc-plot"></div><div class="lc-gutter"><svg class="lc-lead"></svg></div></div>`;
+  const plot = host.querySelector(".lc-plot"), gut = host.querySelector(".lc-gutter"), svg = gut.querySelector("svg");
+  const css = getComputedStyle(document.documentElement), v = (k) => css.getPropertyValue(k).trim();
+  const ch = LightweightCharts.createChart(plot, { ...chartOpts(plot), handleScroll: !!opts.interactive, handleScale: !!opts.interactive,
+    rightPriceScale: { borderColor: v("--line"), scaleMargins: { top: 0.1, bottom: opts.volume ? 0.22 : 0.08 } } });
+  const last = bars[bars.length - 1].close;
+  let ser;
+  if (opts.candles) {
+    ser = ch.addCandlestickSeries({ upColor: v("--up"), downColor: v("--down"), wickUpColor: v("--up"), wickDownColor: v("--down"), borderVisible: false });
+    ser.setData(bars.map((b) => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close })));
+  } else {
+    ser = ch.addAreaSeries({ lineColor: opts.color || v("--accent"), topColor: "rgba(122,167,255,.14)", bottomColor: "rgba(122,167,255,0)", lineWidth: 2, priceLineVisible: false });
+    ser.setData(bars.map((b) => ({ time: b.time, value: b.close })));
+  }
+  if (opts.volume) {
+    const vol = ch.addHistogramSeries({ priceScaleId: "vol", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false });
+    ch.priceScale("vol").applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
+    vol.setData(bars.filter((b) => b.volume != null).map((b) => ({ time: b.time, value: b.volume, color: b.close >= b.open ? v("--up-soft") : v("--down-soft") })));
+  }
+  (opts.averages || []).forEach(([k, col]) => ch.addLineSeries({ color: col, lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
+    .setData(bars.filter((b) => b[k] != null).map((b) => ({ time: b.time, value: b[k] }))));
+  const shown = pickLevels(mergeLevels(levels, last), last, innerWidth < 600 ? 1 : 2);
+  shown.forEach((l) => ser.createPriceLine({ price: l.price, color: v("--line2"), lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" }));
+  const draw = () => {
+    const h = plot.clientHeight;
+    const items = placeLabels(shown.map((l) => ({ ...l, y: ser.priceToCoordinate(l.price) })), h);
+    gut.querySelectorAll(".lc-l").forEach((e) => e.remove());
+    svg.setAttribute("viewBox", `0 0 14 ${h}`); svg.setAttribute("height", h);
+    svg.innerHTML = items.map((i) => `<path d="M0 ${i.y.toFixed(1)} L6 ${i.y.toFixed(1)} L12 ${i.ly.toFixed(1)}" />`).join("");
+    items.forEach((i) => { const e = document.createElement("div"); e.className = "lc-l " + (i.price >= last ? "a" : "b"); e.style.top = `${i.ly}px`;
+      e.textContent = innerWidth < 600 ? i.name : `${i.name} ${i.price.toFixed(2)}`; e.title = `${i.name}: ${i.price.toFixed(2)} (${i.dist >= 0 ? "+" : ""}${i.dist.toFixed(2)}% from the last close)`; gut.appendChild(e); });
+  };
+  ch.timeScale().fitContent();
+  if (opts.range) opts.range(ch);
+  requestAnimationFrame(draw);
+  ch.timeScale().subscribeVisibleLogicalRangeChange(() => requestAnimationFrame(draw));
+  new ResizeObserver(() => { ch.applyOptions({ width: plot.clientWidth, height: plot.clientHeight }); requestAnimationFrame(draw); }).observe(plot);
+  host.__labels = () => [...gut.querySelectorAll(".lc-l")].map((e) => e.getBoundingClientRect());
+  return { ch, ser, shown };
+}
+/* List under a chart: every level with its distance and meaning (the chart only carries short labels). */
+function levelList(levels, last) {
+  const xs = mergeLevels(levels, last);
+  return `<ul class="lvl-list">${xs.map((l) => `<li class="${l.price >= last ? "a" : "b"}"><span class="nm">${esc(l.name)}</span><span class="pr">${l.price.toFixed(2)}</span>
+    <span class="ds ${l.dist >= 0 ? "arw-up" : "arw-down"}">${l.dist >= 0 ? "+" : "−"}${Math.abs(l.dist).toFixed(2)}%</span>${l.explain || l.means ? `<span class="mn">${esc(l.explain || l.means)}</span>` : ""}</li>`).join("")}</ul>`;
+}
+async function drawIndexChart(host, t, s, gates) {
+  if (!window.LightweightCharts || !host) return;
+  const d = await load(`/api/prices/${t}?days=180`);
+  const css = getComputedStyle(document.documentElement), v = (k) => css.getPropertyValue(k).trim();
+  const levels = (gates || []).filter((g) => g.ticker === t).map((g) => ({ name: g.name, price: g.level, explain: g.explain }));
+  levelChart(host.querySelector(".cbox"), d.bars, levels, { color: s.trend === "downtrend" ? v("--down") : s.trend === "uptrend" ? v("--up") : v("--warn") });
+  host.querySelector(".lvl-host").innerHTML = levelList(levels, s.close);
+}
+const STATE_GLYPH = { uptrend: "↗", downtrend: "↘", sideways: "→", calm: "○", normal: "◔", elevated: "◑", high: "●" };
+async function viewOverview(main) {
+  main.innerHTML = skel();
+  const o = await load("/api/overview");
+  const ix = o.indices || {}, t = o.today || {}, reg = o.register || { rows: [] }, acc = o.accountability || {}, st = o.stocks || [];
+  const mine = st.filter((r) => r.mine), others = st.filter((r) => !r.mine);
+  const tone = /downtrend/.test(o.verdict.text) ? "dn" : /sideways/.test(o.verdict.text) ? "mid" : "up";
+  const idxCard = (k) => { const s = ix[k]; if (!s) return "";
+    return `<article class="ix ix-${esc(s.trend || "none")}"><header><b class="tk">${k}</b><span class="px">${money(s.close)}</span>
+      <span class="num ${dirCls(s.chg)}">${pct(s.chg)}</span><span class="chip chip-${esc(s.trend)}">${esc(s.trend || "—")}</span></header>
+      ${railHtml(s)}<p class="means">${esc(s.means || "")}</p></article>`; };
+  const maxAbs = Math.max(1, ...(o.sectors || []).map((x) => Math.abs(x.rel20)));
+  main.innerHTML = `
+  <section class="cockpit ck-${tone}">
+    <div class="ck-head">
+      <h1 class="sr-only">${esc(o.verdict.text)}</h1>
+      <div class="states" aria-hidden="true">${(o.verdict.states || []).map((x) => `<div class="st st-${esc(x.state)}">
+        <span class="st-l">${esc(x.label)}</span><span class="st-v">${esc(STATE_GLYPH[x.state] || "")} ${esc(x.state.charAt(0).toUpperCase() + x.state.slice(1))}</span>
+        ${x.kind === "fear" && x.value != null ? `<span class="st-n">VIX ${x.value.toFixed(1)}${x.stale ? `, as of ${esc(fmtDay(x.date))} (latest not stored yet)` : `, ${esc(fmtDay(x.date))} close`}</span>` : `<span class="st-n">${esc(fmtDay(o.asof))} close</span>`}</div>`).join("")}</div>
+      <p class="ck-sub">${esc(o.conclusion[0])}</p>
+      <div class="ck-todo"><span class="k">What to do</span><span class="v">${esc(o.todo)}</span></div>
+      <details class="ck-rules"><summary>How this is worked out</summary><p>${o.verdict.rules.map(esc).join(" ")} Descriptive, not a forecast.</p></details>
+    </div>
+    <div class="ck-grid">
+      ${idxCard("SPY")}${idxCard("QQQ")}
+      <article class="gauge"><h2>Fear (VIX)</h2>${vixHtml(o.vix)}</article>
+      <article class="gauge"><h2>Breadth</h2>${o.breadth ? `<div class="gauge-head"><b class="big">${o.breadth.value}%</b><span class="faint">of tracked tech above its 50-day</span></div>
+        <div class="meter" role="img" aria-label="${o.breadth.value} percent"><i style="width:${o.breadth.value}%"></i><b style="left:50%"></b></div>
+        <p class="explain"><b>What it is:</b> the share of the ~50 tech stocks we track that closed above their 50-day average. High means most stocks are rising together; low means a few names carry the market.</p><p class="means">${esc(o.breadth.means)}</p>` : `<p class="faint">Not available.</p>`}
+        ${o.rates && o.rates.y10 ? `<div class="mini"><span>10-year yield <b>${o.rates.y10.value.toFixed(2)}%</b></span><p class="means">${esc(o.rates.y10_means || "")}</p></div>` : ""}
+        ${o.rates && o.rates.credit ? `<div class="mini"><span>Credit spread <b>${o.rates.credit.value.toFixed(2)}%</b></span><p class="means">${esc(o.rates.credit_means || "")}</p></div>` : ""}</article>
+    </div>
+    <div class="heat" aria-label="Sectors over 20 sessions versus SPY">${(o.sectors || []).map((x) => { const a = Math.min(1, Math.abs(x.rel20) / maxAbs);
+      return `<div class="cell" style="--a:${(0.15 + a * 0.75).toFixed(2)}" data-dir="${x.rel20 >= 0 ? "up" : "dn"}" title="${esc(x.sector)} ${sgn(x.rel20, 1)} points vs SPY over 20 sessions"><b>${esc(x.sector)}</b><span>${sgn(x.rel20, 1)}</span></div>`; }).join("")}</div>
+    <p class="heat-cap faint small">Sector funds against SPY over 20 sessions. ${(o.drivers || []).slice(0, 1).map((d) => esc(d.means)).join("")}</p>
+  </section>
+
+  <section class="charts">
+    ${["SPY", "QQQ"].filter((k) => ix[k]).map((k) => `<figure class="ixchart" id="ixc-${k}"><figcaption><b>${k}</b>: the levels that would change the read</figcaption><div class="cbox"></div><div class="lvl-host"></div></figure>`).join("")}
+  </section>
+
+  <section class="today2">
+    <div class="t-col">
+      <h2>Today</h2>
+      <p class="faint small">${esc(t.data_note || "")}</p>
+      <ul class="movers">${(t.movers || []).map((m) => `<li><button class="lnk" data-open="${esc(m.ticker)}"><b>${esc(m.ticker)}</b></button> <span class="num ${dirCls(m.chg)}">${pct(m.chg)}</span><span class="why">${esc(m.why)}</span></li>`).join("")}</ul>
+      ${t.report ? `<p class="small"><a href="#/reports">${esc(t.report.title)}</a>: ${esc(t.report.verdict)}</p>` : ""}
+    </div>
+    <div class="t-col">
+      <h2>Coming up</h2>
+      <ol class="timeline">${(o.next || []).map((e) => `<li class="ev-${esc(e.kind)}"><div><time>${esc(fmtDay(e.date))}${e.time ? `<small>${esc(e.time)}</small>` : ""}</time><b>${esc(e.what)}</b><p>${esc(e.why)}</p></div></li>`).join("") || `<li class="faint">Nothing major scheduled in the next 10 days.</li>`}</ol>
+    </div>
+  </section>
+
+  <section class="stocks2">
+    <h2>Your stocks</h2>
+    <div class="sgrid">${mine.map((r) => `<button class="scard" data-open="${esc(r.ticker)}">
+      <span class="row1"><b class="tk">${esc(r.ticker)}</b>${r.grade ? `<span class="grade-chip">${esc(r.grade)}</span>` : ""}<span class="px">${money(r.price)}</span><span class="num ${dirCls(r.chg)}">${pct(r.chg)}</span></span>
+      ${sparkSvg(r.spark)}
+      <span class="read">${esc(r.read || r.line || "")}</span>
+      ${r.watch ? `<span class="watch">Watch: ${esc(r.watch)}</span>` : ""}</button>`).join("")}</div>
+    ${others.length ? `<p class="faint small">Also worth a look: ${others.map((r) => `<button class="lnk" data-open="${esc(r.ticker)}">${esc(r.ticker)}</button>`).join(", ")}</p>` : ""}
+  </section>
+
+  <section class="setups2">
+    <h2>Live setups <span class="faint">${esc(reg.line)}</span></h2>
+    ${reg.rows.length ? `<ul class="setups">${reg.rows.map((r) => `<li><button class="lnk" data-open="${esc(r.name)}"><b>${esc(r.name)}</b></button> <span class="chip">${esc(r.setup)}</span>
+      <span>${esc(r.latest)}.</span> <span class="next">Needs next: ${esc(r.next)}.</span></li>`).join("")}</ul>` : `<p class="faint">No live setups.</p>`}
+    <p class="faint small">${esc(reg.note)} <a href="#/opportunities">Full pipeline</a></p>
+  </section>
+
+  <details class="more ov-more"><summary>More context: what changed, drivers, evidence, accountability</summary>
+    <div class="ov-more-grid">
+      <div><h3>What changed</h3><ul>${o.changed.map((c) => `<li><span class="faint">${esc(fmtDay(c.date))}</span> ${esc(c.text)}</li>`).join("")}</ul></div>
+      <div><h3>What's driving the market</h3><ul>${(o.drivers || []).map((d) => `<li>${esc(d.text)} <b>${esc(d.means)}</b></li>`).join("")}</ul></div>
+      <div><h3>Where the evidence disagrees</h3><ul>${(o.evidence || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
+      <div><h3>Our record</h3><ul><li>${esc(acc.positions)}</li><li>${esc(acc.results)} ${esc(acc.ledger)}</li><li>${esc(acc.runs)}</li></ul><a href="#/track">Track record</a></div>
+      <div><h3>Not available from free sources</h3><ul>${(o.not_available || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
+    </div></details>
+  <p class="preamble">Research, not advice. Nothing is traded; every decision is yours.</p>`;
+  main.querySelectorAll("[data-open]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); openStock(a.dataset.open); }));
+  ["SPY", "QQQ"].forEach((k) => { if (ix[k]) drawIndexChart($(`#ixc-${k}`), k, ix[k], o.gates).catch(() => {}); });
+}
+
+const VIEWS = { overview: viewOverview, stocks: viewStocks, earnings: viewEarnings, market: viewMarket, opportunities: viewOpps, oversold: viewOversold, reports: viewReports, track: viewTrack, discovery: viewDiscovery, ops: viewOps, settings: viewSettings };
 const skel = () => `<div class="list">${'<div class="skeleton"></div>'.repeat(6)}</div>`;
 function whenPlotly(fn, tries = 0) { if (window.Plotly) fn(); else if (tries < 60) setTimeout(() => whenPlotly(fn, tries + 1), 100); else { const e = $("#treemap"); if (e) e.innerHTML = `<div class="empty">Heatmap library unavailable (offline?).</div>`; } }
 
 async function route() {
-  const v = (location.hash.replace("#/", "") || "stocks").split("?")[0];
-  const view = VIEWS[v] ? v : "stocks";
+  const v = (location.hash.replace("#/", "") || "overview").split("?")[0];
+  const view = VIEWS[v] ? v : "overview";
   document.querySelectorAll(".tabs a").forEach((a) => { a.classList.toggle("active", a.dataset.view === view); a.setAttribute("aria-current", a.dataset.view === view ? "page" : "false"); });
+  const more = document.querySelector(".more-nav");
+  if (more) { more.classList.toggle("active", !!more.querySelector(`a[data-view="${view}"]`)); more.open = false; }
   closeDrawer();
   const main = $("#main");
   try { await VIEWS[view](main); } catch (e) { main.innerHTML = `<div class="err">Could not load this view: ${esc(e.message)}</div>`; }
 }
+
+document.addEventListener("click", (e) => {               // close the More menu on any click outside it, or on a choice
+  const m = document.querySelector(".more-nav");
+  if (m && m.open && (!m.contains(e.target) || e.target.closest(".more-menu a"))) m.open = false;
+});
 
 async function boot(force = false) {
   const main = $("#main");
@@ -923,3 +1165,22 @@ $("#theme").addEventListener("click", () => {
 setInterval(tickCountdown, 1000);
 setInterval(() => boot(true), 5 * 60 * 1000);   // pick up new research runs automatically
 boot();
+
+/* Label self-check (scripts/check_chart_labels.py): with ?selfcheck=1 the page measures every chart label and writes
+   the result into <pre id="selfcheck">. Fails on a label overlapping another label or sitting on a plot. */
+if (new URLSearchParams(location.search).get("selfcheck")) {
+  setTimeout(() => {
+    const out = { charts: 0, labels: 0, overlaps: [], on_plot: [] };
+    document.querySelectorAll(".lc").forEach((lc, ci) => {
+      out.charts++;
+      const plot = lc.querySelector(".lc-plot").getBoundingClientRect();
+      const ls = [...lc.querySelectorAll(".lc-l")].map((e) => ({ t: e.textContent, r: e.getBoundingClientRect() }));
+      out.labels += ls.length;
+      ls.forEach((a, i) => {
+        if (a.r.left < plot.right - 0.5 && a.r.right > plot.left && a.r.top < plot.bottom && a.r.bottom > plot.top) out.on_plot.push(`${ci}:${a.t}`);
+        ls.slice(i + 1).forEach((b) => { if (a.r.left < b.r.right && b.r.left < a.r.right && a.r.top < b.r.bottom - 0.5 && b.r.top < a.r.bottom - 0.5) out.overlaps.push(`${ci}:${a.t} | ${b.t}`); });
+      });
+    });
+    const pre = document.createElement("pre"); pre.id = "selfcheck"; pre.textContent = JSON.stringify(out); document.body.appendChild(pre);
+  }, 9000);
+}
