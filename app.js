@@ -42,7 +42,7 @@ function staticPath(path) {
 async function api(path, opts) {
   if (STATIC) {
     if (opts && opts.method === "POST") throw new Error("This is a read-only snapshot.");
-    const r = await fetch(staticPath(path));
+    const r = await fetch(staticPath(path) + "?v=" + encodeURIComponent(STATIC.asof || ""));   // a new snapshot never reads cached old data
     if (!r.ok) throw new Error("Not included in this snapshot.");
     const j = await r.json();
     if (j.error) throw new Error(j.error);

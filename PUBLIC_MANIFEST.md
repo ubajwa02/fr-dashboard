@@ -1,6 +1,6 @@
 # Public manifest: Fundamental Researcher snapshot
 
-Read-only snapshot, generated 2026-11-10 05:15 UTC. Research, not advice.
+Read-only snapshot, generated 2026-11-10 05:19 UTC. Research, not advice.
 
 ## What is in this site
 
