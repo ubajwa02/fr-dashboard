@@ -684,3 +684,17 @@ table.agents td.s1 { color: var(--up); } table.agents td.s-1, table.agents td.sv
 .bbb { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; } .bbb > div { padding: 8px 10px; border-radius: var(--r-sm); background: var(--panel); text-align: center; }
 .bbb span { display: block; font-size: 13px; color: var(--muted); } .bbb b { font-size: 18px; font-variant-numeric: tabular-nums; } .bbb .base { outline: 1px solid var(--accent); } .bbb p { grid-column: 1 / -1; margin: 0; }
 .sec-h { max-width: 1320px; margin: 20px auto 6px; font-size: var(--fs-h2); }
+
+/* coverage */
+.cov-tiles { margin: 0 0 14px; }
+.cov-tiles .tile { text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.cov-tiles .tile:hover { border-color: var(--accent); }
+#cov-manage .filters { flex-wrap: wrap; }
+.cov-h { margin-top: 28px; }
+.cov-alert { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 0 0 8px; background: var(--panel); }
+.cov-alert summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cov-alert .rec-f { margin-top: 8px; }
+.mon-list { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 8px; }
+.mon-list li { border-left: 3px solid var(--line2); padding: 2px 0 2px 10px; font-size: var(--fs-sm); line-height: 1.45; }
+.mon-list li.mon-ch { border-left-color: var(--accent); }
+.mon-list li.mon-gap { border-left-style: dashed; }

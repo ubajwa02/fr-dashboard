@@ -396,6 +396,7 @@ async function viewSettings(main) {
   if (STATIC) { main.innerHTML = `<div class="head"><h1>Settings</h1></div><p class="faint">Not included in the shared snapshot.</p>`; return; }
   main.innerHTML = skel();
   const h = await api("/api/holdings");
+  if (h.disabled) { main.innerHTML = `<div class="head"><div><h1>Settings</h1><p class="sub">${esc(h.note)}</p></div></div>`; return; }
   const rows = (h.holdings || []).concat([{}, {}, {}]);
   const e = h.exposure || {};
   main.innerHTML = `<div class="head"><div><h1>Settings</h1><p class="sub">Your holdings stay on this Mac (data/holdings.yaml). They are never committed, pushed or included in the shared snapshot.</p></div></div>
@@ -929,6 +930,20 @@ function profileHtml(p, c) {
   if (!p) return "";
   return `<p class="prof">${[p.sector, p.industry].filter(Boolean).map(esc).join(", ")}${p.market_cap ? `. Market cap ${bigMoney(p.market_cap)}` : ""}. <span class="faint">Profile ${esc(p.source || "")}, ${esc(p.as_of || "")}.</span></p>`;
 }
+/* Intelligence profile (fr/monitor_profile.py): what changed since the last assessment, across 12 dimensions. */
+function monitorHtml(m) {
+  if (!m) return "";
+  if (!m.available) return `<section class="ccall mon"><h3>What Changed</h3><p class="faint">${esc(m.note)}</p></section>`;
+  const ch = m.dimensions.filter((d) => d.changed), same = m.dimensions.filter((d) => !d.changed);
+  const row = (d) => `<li class="${d.changed ? "mon-ch" : d.gap ? "mon-gap" : ""}"><b>${esc(d.dimension)}</b>${d.as_of ? ` <span class="faint small">${esc(fmtDay(d.as_of.slice(0, 10)))}</span>` : ""}
+    <div>${esc(d.text)}</div><div class="faint small">${esc(d.source)}${d.limits ? `. ${esc(d.limits)}` : ""}</div></li>`;
+  return `<section class="ccall mon" aria-label="What changed">
+    <div class="ccall-h"><h3>What Changed</h3><span class="cv">${m.changed} of ${m.dimensions.length} dimensions</span></div>
+    <p class="faint small">Across the 12 monitoring dimensions, ${esc(m.basis)}. Meaningful means beyond normal fluctuation (rules in docs/coverage).</p>
+    ${ch.length ? `<ul class="mon-list">${ch.map(row).join("")}</ul>` : `<p>No meaningful change in any dimension.</p>`}
+    ${same.length ? `<details class="fold"><summary>No Meaningful Change (${same.length})</summary><ul class="mon-list">${same.map(row).join("")}</ul></details>` : ""}
+  </section>`;
+}
 function committeeCallHtml(k, th) {
   if (!k) return `<section class="ccall"><h3>Committee Call</h3><p class="faint">No committee card for this stock (outside the focus list).</p></section>`;
   const v = (th && th.valuation) || {}, dcf = v.dcf || {};
@@ -967,7 +982,7 @@ async function openStock(t) {
       openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(t)}</span></div><p class="muted" style="margin-top:12px">${esc(d.error)}</p>`);
       return;
     }
-    c = c || d.card; kn = d.keynums; mentor = d.mentor; scen = d.scenarios; extra = { levels: d.levels, moves: d.moves_with, challenge: d.challenge, oc: d.options_check, thesis: d.thesis, daily: d.daily, committee: d.committee, profile: d.profile };
+    c = c || d.card; kn = d.keynums; mentor = d.mentor; scen = d.scenarios; extra = { levels: d.levels, moves: d.moves_with, challenge: d.challenge, oc: d.options_check, thesis: d.thesis, daily: d.daily, committee: d.committee, profile: d.profile, monitor: d.monitor };
   } catch (e) {
     if (!c) { openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(t)}</span></div><div class="err">Could not load this stock: ${esc(e.message)}</div>`); return; }
   }
@@ -976,6 +991,7 @@ async function openStock(t) {
     <div class="dh"><span class="px num">${money(c.price)}</span><span class="num ${dirCls(c.change_1d)}">${pct(c.change_1d)} last session</span></div>
     ${profileHtml(extra.profile, c)}
     ${committeeCallHtml(extra.committee, extra.thesis)}
+    ${monitorHtml(extra.monitor)}
     ${asofHtml(c, kn)}
     <section class="verdict-box" aria-label="Business"><div class="biz">${gradeBadge(f)} <span class="hl">${esc(f.headline)}</span></div>
       ${c.todo ? `<p class="todo-line"><b>What to do:</b> ${esc(c.todo)}</p>` : ""}
@@ -1280,8 +1296,8 @@ async function viewCommand(main) {
         ${k.sizes_shown ? `<td class="num">${c.size ? `${c.size.paper_pct}% <span class="faint">pending</span>` : "—"}</td>` : ""}<td>${esc(c.headline.replace(/^[^:]+: /, ""))}</td><td>${c.invalidation != null ? money2(c.invalidation) : "—"}</td></tr>`).join("")}
     </tbody></table></div></section>
   ${watchHtml(k.watch)}
-  <section class="cc-sec"><h2>Active Book</h2>
-    <p>No positions recorded, so there is no live book to mark. ${k.sizes_shown ? `The committee's hypothetical paper book is on <a href="#/book">Position Book</a> (sizes pending your approval).` : ""}</p></section>
+  ${k.portfolio_enabled ? `<section class="cc-sec"><h2>Active Book</h2>
+    <p>No positions recorded, so there is no live book to mark. ${k.sizes_shown ? `The committee's hypothetical paper book is on <a href="#/book">Position Book</a> (sizes pending your approval).` : ""}</p></section>` : ""}
   <section class="cc-sec"><h2>Emerging Calls</h2><p class="sub">What could become a call, what we are waiting for, and when it is decided.</p>
     ${(B.emerging || []).length ? `<div class="tbl-wrap"><table class="sortable"><thead><tr><th>Idea</th><th>Waiting For</th><th>Decision By</th></tr></thead><tbody>
       ${B.emerging.map((e) => `<tr><td><b>${esc(e.what)}</b></td><td>${esc(e.waiting_for)}</td><td>${esc(e.decision_by)}</td></tr>`).join("")}</tbody></table></div>` : `<p class="faint">Nothing close to becoming a call.</p>`}</section>
@@ -1407,6 +1423,7 @@ async function viewEarnC(main) {
 async function viewBook(main) {
   main.innerHTML = skel();
   const k = await load("/api/committee");
+  if (!k.portfolio_enabled) { location.hash = "#/coverage"; return; }       // portfolio features off: the page is retired
   const paper = (k.cards || []).filter((c) => c.size);
   main.innerHTML = `<div class="head"><div><h1>Position Book</h1><p class="sub">Your real positions, and separately a hypothetical paper book of the committee's calls.</p></div></div>
     <section class="cc-sec"><h2>Your Positions</h2><p>No positions recorded. You can enter holdings under Settings (kept on this Mac only); the committee never trades and has no broker connection.</p></section>
@@ -1518,7 +1535,161 @@ async function viewOverview(main) {
   ["SPY", "QQQ"].forEach((k) => { if (ix[k]) drawIndexChart($(`#ixc-${k}`), k, ix[k], o.gates).catch(() => {}); });
 }
 
-const VIEWS = { command: viewCommand, recs: viewRecs, opps: viewOppsC, earnings2: viewEarnC, book: viewBook, log: viewLog, overview: viewOverview, stocks: viewStocks, earnings: viewEarnings, market: viewMarket, opportunities: viewOpps, oversold: viewOversold, reports: viewReports, track: viewTrack, discovery: viewDiscovery, ops: viewOps, settings: viewSettings };
+
+/* Coverage & Monitoring (fr/coverage.py; rules in docs/coverage/COVERAGE_RULES.md). Research coverage only: no holdings. */
+const PRIO_RANK = { high: 3, medium: 2, low: 1 };
+
+const PRI_CLS = { high: "c-avoid", medium: "c-hold", low: "" };
+function covAlertHtml(x, local) {
+  return `<details class="cov-alert"><summary><span class="pill ${PRI_CLS[x.priority] || ""}">${esc(x.priority)}</span> <b>${esc(x.ticker)}</b> ${esc(x.label)}${x.immediate ? ` <span class="pill c-avoid">Immediate</span>` : ""}${x.best_effort ? ` <span class="faint small">best effort</span>` : ""}
+    <span class="faint small">${esc(fmtDay(x.asof))} · significance ${x.significance}</span></summary>
+    <dl class="rec-f"><div><dt>What Happened</dt><dd>${esc(x.what)}</dd></div><div><dt>Why It Matters</dt><dd>${esc(x.why)}</dd></div>
+      <div><dt>What Changed</dt><dd>${esc(x.changed)}</dd></div><div><dt>Who Investigates</dt><dd>${esc(x.analysts.join(", "))}</dd></div>
+      <div><dt>Affects The Call?</dt><dd>${esc(x.affects_call)}</dd></div><div><dt>Immediate Attention?</dt><dd>${esc(x.immediate_why)}</dd></div></dl>
+    ${local ? `<p><button class="btn" data-ack="${esc(x.alert_id)}" data-st="seen">Mark seen</button> <button class="btn ghost" data-ack="${esc(x.alert_id)}" data-st="dismissed">Dismiss</button></p>` : ""}</details>`;
+}
+const DIR_CALLS = ["Buy", "Accumulate", "Reduce", "Avoid"];
+/* A directional result on a name without a recorded call is a lean, not a recommendation (shown muted). */
+function covCall(a) {
+  if (DIR_CALLS.includes(a.call) && !a.in_ledger) return `<span class="faint" title="The committee's rules lean this way, but no call is recorded in the ledger: not a recommendation.">${esc(a.call)} lean</span>`;
+  return callPill({ call: a.call });
+}
+function covSections(v) {
+  const S = v.sections || {}, act = S.activity || { by_agent: {} };
+  const tbl = (head, rows, empty) => rows.length ? `<div class="tbl-wrap"><table class="sortable"><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>` : `<p class="faint">${empty}</p>`;
+  const tk = (t) => t === "Market" ? `<b>Market</b>` : `<a href="#" data-open="${esc(t)}"><b>${esc(t)}</b></a>`;
+  const att = S.attention || [];
+  const dg = v.digest || {};
+  return `<section class="cc-sec"><h2>Stocks Needing Attention</h2>
+      <p class="sub">Open alerts, most significant first. Each answers what happened, why it matters, what changed, who investigates, whether it affects the call, and whether it is urgent. ${dg.date ? `Latest digest (${esc(fmtDay(dg.date))}): ${dg.counts.high} high, ${dg.counts.medium} medium, ${dg.counts.low} low.` : ""}</p>
+      ${att.length ? att.slice(0, 12).map((x) => covAlertHtml(x, v.local)).join("") : `<p class="faint">No open alerts. Alerts fire only when something meaningful changes from the previous assessment (rules in docs/coverage/ALERT_RULES.md); the first day of coverage has nothing to compare against.</p>`}
+      ${att.length > 12 ? `<p class="faint small">${att.length - 12} more in the digest.</p>` : ""}</section>
+    <div class="cc-two">
+      <section class="cc-sec"><h2>Highest-Conviction Opportunities</h2><p class="sub">Live buying calls first, then candidates and stocks near their entry, by conviction, business grade and distance to entry.</p>
+        ${tbl(["Stock", "Stage", "Call", "Conviction", "Grade", "Valuation", "Entry"], (S.opportunities || []).map((o) => `<tr><td>${tk(o.ticker)}</td><td>${esc(o.lifecycle)}</td><td>${covCall(o)}</td><td>${esc(o.conviction || "—")}</td><td>${esc(o.grade || "—")}</td><td>${esc(o.valuation || "—")}</td>
+          <td>${o.entry != null ? `${money2(o.entry)} <span class="faint small">(${o.entry_gap_atr} ATR away)</span>` : "—"}</td></tr>`), "No opportunities: no live buying call, candidate or stock near its entry.")}</section>
+      <section class="cc-sec"><h2>Upcoming Catalysts</h2><p class="sub">Covered stocks' earnings in the next 30 days and major market events in the next 14.</p>
+        ${tbl(["Date", "Stock", "What", "Call"], (S.catalysts || []).map((c) => `<tr><td data-v="${esc(c.date)}">${esc(fmtDay(c.date))}<div class="faint small">${c.days === 0 ? "today" : `in ${c.days} days`}</div></td><td>${tk(c.ticker)}</td><td>${esc(c.what)}</td><td>${c.call ? covCall(c) : "—"}</td></tr>`), "Nothing scheduled.")}</section>
+    </div>
+    <div class="cc-two">
+      <section class="cc-sec"><h2>Approaching Attractive Valuations</h2><p class="sub">Grade A or B businesses already in their cheap range, then fairly priced stocks within ${(S.rules || {}).approach_value_pct || 15} percentile points of it (own 5-year price-to-sales history).</p>
+        ${tbl(["Stock", "Valuation", "Grade", "How Close", "Call"], (S.approaching_value || []).map((x) => `<tr><td>${tk(x.ticker)}</td><td>${esc(x.valuation)}</td><td>${esc(x.grade || "—")}</td><td data-v="${x.to_cheap}">${esc(x.note)}</td><td>${covCall(x)}</td></tr>`), "None near the cheap range.")}</section>
+      <section class="cc-sec"><h2>Deteriorating Cases</h2><p class="sub">Stocks flagged Thesis Deteriorating, plus early warnings where quarterly revenue growth fell 10+ points over two quarters.</p>
+        ${tbl(["Stock", "Status", "Why"], (S.deteriorating || []).map((d) => `<tr><td>${tk(d.ticker)}</td><td>${esc(d.kind)}</td><td>${esc(d.why)}</td></tr>`), "No deteriorating cases.")}</section>
+    </div>
+    <div class="cc-two">
+      <section class="cc-sec"><h2>Recent Thesis Changes</h2><p class="sub">Calls that changed, recommendations that started or ended, and theses flagged, in the last 14 days.</p>
+        ${tbl(["When", "Stock", "Change", "Why"], (S.thesis_changes || []).map((h) => `<tr><td data-v="${esc(h.at)}">${esc(fmtDay(h.at.slice(0, 10)))}</td><td>${tk(h.ticker)}</td><td>${esc(h.old_value || "—")} → ${esc(h.new_value || "—")}</td><td>${esc(h.reason)}</td></tr>`), "No thesis changes since coverage started.")}</section>
+      <section class="cc-sec"><h2>Recently Discovered</h2><p class="sub">Screen picks and stocks you added, newest first.</p>
+        ${tbl(["Stock", "Added", "By", "Stage"], (S.discovered || []).map((d) => `<tr><td>${tk(d.ticker)}<div class="faint small">${esc(d.name || "")}</div></td><td data-v="${esc(d.added_at)}">${esc(fmtDay(d.added_at.slice(0, 10)))}</td><td>${esc(d.added_by === "screen" ? "quarterly screen" : d.added_by === "manual" ? "you" : "seed")}</td><td>${esc(d.lifecycle)}${d.insufficient ? `<div class="faint small">insufficient data</div>` : ""}</td></tr>`), "Nothing newly discovered.")}</section>
+    </div>
+    <section class="cc-sec"><h2>Research Activity</h2>
+      <div class="tiles"><div class="tile"><span>Open</span><b class="num">${act.open || 0}</b></div><div class="tile"><span>In Progress</span><b class="num">${act.in_progress || 0}</b></div>
+        <div class="tile"><span>Opened, 14 Days</span><b class="num">${act.opened_14d || 0}</b></div><div class="tile"><span>Done, 14 Days</span><b class="num">${act.done_14d || 0}</b></div>
+        ${Object.entries(act.by_agent).map(([k, n]) => `<div class="tile"><span>${esc(k)}</span><b class="num">${n}</b><small>open items</small></div>`).join("")}</div></section>`;
+}
+async function viewCoverage(main) {
+  main.innerHTML = skel();
+  const v = await load("/api/coverage");
+  const live = v.stocks.filter((s) => !s.removed_at);
+  const uniq = (f) => [...new Set(live.map(f).flat().filter(Boolean))].sort();
+  const opt = (xs) => xs.map((x) => `<option>${esc(x)}</option>`).join("");
+  const a = (s) => s.assessment || {};
+  main.innerHTML = `<div class="head"><div><h1>Coverage &amp; Monitoring</h1><p class="sub">Every stock we cover: where it is in its research lifecycle, who is looking into what, and what changed. Research coverage only; no holdings are tracked.</p></div></div>
+    <div class="tiles cov-tiles"><div class="tile"><span>Total Covered</span><b class="num">${v.total}</b></div>
+      ${v.categories.map((c) => `<button class="tile cov-cat" data-cat="${esc(c)}"><span>${esc(c)}</span><b class="num">${v.counts[c] || 0}</b></button>`).join("")}</div>
+    ${covSections(v)}
+    <h2 class="cov-h">All Covered Stocks</h2>
+    <div class="filters" role="group" aria-label="Filter coverage">
+      <label>Category <select id="cf-cat"><option value="">All</option>${opt(v.categories)}</select></label>
+      <label>Sector <select id="cf-sec"><option value="">All</option>${opt(uniq((s) => s.sector))}</select></label>
+      <label>Analyst <select id="cf-an"><option value="">All</option>${opt(v.agents)}</select></label>
+      <label>Horizon <select id="cf-hor"><option value="">All</option><option value="technical">20 days</option><option value="fundamental">250 days</option></select></label>
+      <label>Research <select id="cf-rs"><option value="">All</option><option>open</option><option>in progress</option><option>done</option></select></label>
+      <label>Conviction <select id="cf-conv"><option value="">All</option><option>Medium</option><option>Low</option><option value="none">None</option></select></label>
+      <label>Priority <select id="cf-pr"><option value="">All</option><option>high</option><option>medium</option><option>low</option></select></label>
+      ${v.groups.length ? `<label>Group <select id="cf-gr"><option value="">All</option>${opt(v.groups.map((g) => g.name))}</select></label>` : ""}
+      <label><input type="checkbox" id="cf-arch"> Show archived</label>
+      <span id="cf-n" class="faint"></span></div>
+    <div class="tbl-wrap"><table class="sortable" id="cov-tbl"><thead><tr><th>Ticker</th><th>Category</th><th>Lifecycle</th><th>Call</th><th>Conviction</th><th>Priority</th><th>Analysts</th><th>Research</th><th>Sector</th><th>Base List</th></tr></thead><tbody></tbody></table></div>
+    <div class="cc-two">
+      <section class="cc-sec"><h2>Recent Changes</h2><p class="sub">Every move, with its reason. Automatic moves name the rule that fired.</p><div id="cov-hist"></div></section>
+      <section class="cc-sec"><h2>Open Assignments</h2><p class="sub">Which committee agent owns investigating each open item.</p><div id="cov-asg"></div></section>
+    </div>
+    ${v.local ? `<section class="cc-sec" id="cov-manage"><h2>Manage Coverage</h2><p class="sub">On this Mac only. Every change is written to the history; a pin holds until you clear it.</p>
+      <form id="cov-add" class="filters"><label>Add ticker <input name="t" maxlength="10" placeholder="e.g. SNPS" aria-label="Ticker to add"></label>
+        <label>List <select name="tier"><option>Watchlist</option><option>Core Coverage</option></select></label>
+        <label>Priority <select name="pr"><option>medium</option><option>high</option><option>low</option></select></label>
+        <button class="btn" type="submit">Add</button></form>
+      <form id="cov-set" class="filters"><label>Stock <select name="t">${live.map((s) => `<option>${esc(s.ticker)}</option>`).join("")}</select></label>
+        <label>Change <select name="f"><option value="priority">Priority</option><option value="tier">Base list</option><option value="frequency">Monitoring frequency</option><option value="pin_category">Pin category</option><option value="pin_lifecycle">Pin lifecycle</option><option value="remove">Remove from coverage</option></select></label>
+        <label>To <select name="v"></select></label><label>Note <input name="note" maxlength="200" placeholder="optional"></label>
+        <button class="btn" type="submit">Apply</button></form>
+      <form id="cov-asg-f" class="filters"><label>Stock <select name="t">${live.map((s) => `<option>${esc(s.ticker)}</option>`).join("")}</select></label>
+        <label>Agent <select name="ag">${opt(v.agents)}</select></label><label>Item <input name="item" maxlength="300" placeholder="what to investigate"></label>
+        <button class="btn" type="submit">Assign</button></form>
+      <form id="cov-grp" class="filters"><label>New group <input name="name" maxlength="60" placeholder="e.g. AI infrastructure"></label><button class="btn" type="submit">Create</button>
+        ${v.groups.length ? `<label>Group <select name="g">${v.groups.map((g) => `<option value="${esc(g.group_id)}">${esc(g.name)}</option>`).join("")}</select></label>
+        <label>Stock <select name="t">${live.map((s) => `<option>${esc(s.ticker)}</option>`).join("")}</select></label>
+        <button class="btn" type="button" data-gm="1">Add to group</button><button class="btn ghost" type="button" data-gm="0">Remove from group</button>` : ""}</form>
+      <p id="cov-msg" class="faint" role="status"></p></section>` : ""}
+    ${disclosure("Coverage and lifecycle moves are rules over our own data; they are not advice. Nothing is traded and no holdings are tracked.")}`;
+  const sel = () => ({ cat: $("#cf-cat").value, sec: $("#cf-sec").value, an: $("#cf-an").value, hor: $("#cf-hor").value, rs: $("#cf-rs").value,
+    conv: $("#cf-conv").value, pr: $("#cf-pr").value, gr: $("#cf-gr") ? $("#cf-gr").value : "", arch: $("#cf-arch").checked });
+  const draw = () => {
+    const f = sel();
+    const xs = v.stocks.filter((s) => (f.arch || !s.removed_at) && (!f.cat || s.category === f.cat) && (!f.sec || s.sector === f.sec) && (!f.an || s.analysts.includes(f.an))
+      && (!f.hor || s.horizon === f.hor) && (!f.rs || s.research_status === f.rs) && (!f.pr || s.priority === f.pr) && (!f.gr || s.groups.includes(f.gr))
+      && (!f.conv || (f.conv === "none" ? !a(s).conviction : a(s).conviction === f.conv)));
+    xs.sort((p, q) => v.categories.indexOf(q.category) - v.categories.indexOf(p.category) || PRIO_RANK[q.priority] - PRIO_RANK[p.priority] || p.ticker.localeCompare(q.ticker));
+    $("#cov-tbl tbody").innerHTML = xs.map((s) => `<tr><td><a href="#" data-open="${esc(s.ticker)}"><b>${esc(s.ticker)}</b></a><div class="faint small">${esc(s.name || "")}</div></td>
+      <td data-v="${v.categories.indexOf(s.category)}">${esc(s.category)}${s.pin_category ? ` <span class="faint small">(pinned)</span>` : ""}</td>
+      <td data-v="${v.lifecycle.indexOf(s.lifecycle)}">${esc(s.lifecycle)}${s.pin_lifecycle ? ` <span class="faint small">(pinned)</span>` : ""}</td>
+      <td>${a(s).insufficient ? `<span class="faint">Insufficient data</span>` : covCall(a(s))}</td><td>${esc(a(s).conviction || "—")}</td>
+      <td data-v="${PRIO_RANK[s.priority]}">${esc(s.priority)}</td><td>${esc(s.analysts.join(", ") || "—")}</td><td>${esc(s.research_status)}</td>
+      <td>${esc(s.sector || "—")}</td><td>${esc(s.tier)}${s.groups.length ? `<div class="faint small">${esc(s.groups.join(", "))}</div>` : ""}</td></tr>`).join("")
+      || `<tr><td colspan="10"><div class="empty-state"><p>No covered stock matches these filters.</p></div></td></tr>`;
+    $("#cf-n").textContent = `${xs.length} shown`;
+    $("#cov-tbl").querySelectorAll("[data-open]").forEach((x) => x.addEventListener("click", (e) => { e.preventDefault(); openStock(x.dataset.open); }));
+  };
+  main.querySelectorAll(".filters select, #cf-arch").forEach((x) => { if (x.id && x.id.startsWith("cf-")) x.addEventListener("change", draw); });
+  main.querySelectorAll(".cov-cat").forEach((b) => b.addEventListener("click", () => { $("#cf-cat").value = b.dataset.cat; draw(); }));
+  draw();
+  const hist = v.history.filter((h) => h.field === "category" || h.field === "lifecycle" || h.source === "manual").slice(0, 40);
+  $("#cov-hist").innerHTML = hist.length ? `<div class="tbl-wrap"><table class="sortable"><thead><tr><th>When</th><th>Stock</th><th>Move</th><th>Why</th></tr></thead><tbody>
+    ${hist.map((h) => `<tr><td data-v="${esc(h.at)}">${esc(h.at.slice(0, 16).replace("T", " "))}</td><td><b>${esc(h.ticker)}</b></td><td>${esc(h.field)}: ${esc(h.old_value || "—")} → ${esc(h.new_value || "—")}<div class="faint small">${esc(h.source)}${h.rule ? `, ${esc(h.rule)}` : ""}</div></td><td>${esc(h.reason)}</td></tr>`).join("")}</tbody></table></div>`
+    : `<p class="faint">No changes recorded yet.</p>`;
+  const open = v.assignments.filter((x) => x.status !== "done");
+  $("#cov-asg").innerHTML = open.length ? `<div class="tbl-wrap"><table class="sortable"><thead><tr><th>Stock</th><th>Agent</th><th>Item</th><th>Status</th></tr></thead><tbody>
+    ${open.map((x) => `<tr><td><b>${esc(x.ticker)}</b></td><td>${esc(x.agent)}</td><td>${esc(x.item)}<div class="faint small">since ${esc(fmtDay(x.opened_at.slice(0, 10)))}</div></td>
+      <td>${v.local ? `<select data-asg="${esc(x.assignment_id)}" aria-label="Research status">${["open", "in progress", "done"].map((st) => `<option${st === x.status ? " selected" : ""}>${st}</option>`).join("")}</select>` : esc(x.status)}</td></tr>`).join("")}</tbody></table></div>`
+    : `<p class="faint">No open assignments.</p>`;
+  main.querySelectorAll(".cc-sec [data-open]").forEach((x) => x.addEventListener("click", (e) => { e.preventDefault(); openStock(x.dataset.open); }));
+  enableSort(main);
+  if (!v.local) return;
+  const msg = (t) => { $("#cov-msg").textContent = t; };
+  main.querySelectorAll("[data-ack]").forEach((b) => b.addEventListener("click", () => post({ action: "ack", alert_id: b.dataset.ack, status: b.dataset.st }, b.dataset.st === "seen" ? "Marked seen." : "Dismissed.")));
+  const post = async (body, ok) => {
+    try { await api("/api/coverage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); state.cache = {}; await viewCoverage(main); $("#cov-msg").textContent = ok; }
+    catch (e) { msg("Not saved: " + e.message); }
+  };
+  main.querySelectorAll("[data-asg]").forEach((s) => s.addEventListener("change", () => post({ action: "status", assignment_id: s.dataset.asg, status: s.value }, "Research status updated.")));
+  $("#cov-add").addEventListener("submit", (e) => { e.preventDefault(); const f = e.target; const t = f.t.value.trim().toUpperCase(); if (t) post({ action: "add", ticker: t, tier: f.tier.value, priority: f.pr.value }, `${t} added. It shows insufficient data until the background refresh backfills it.`); });
+  const CHOICES = { priority: ["high", "medium", "low"], tier: ["Core Coverage", "Watchlist"], frequency: ["every refresh", "daily", "weekly"],
+    pin_category: ["", ...v.categories], pin_lifecycle: ["", ...v.lifecycle], remove: ["confirm"] };
+  const sf = $("#cov-set");
+  const fill = () => { sf.v.innerHTML = CHOICES[sf.f.value].map((x) => `<option value="${esc(x)}">${esc(x || "Clear pin")}</option>`).join(""); };
+  sf.f.addEventListener("change", fill); fill();
+  sf.addEventListener("submit", (e) => { e.preventDefault();
+    if (sf.f.value === "remove") post({ action: "remove", ticker: sf.t.value, note: sf.note.value }, `${sf.t.value} archived. Its history stays.`);
+    else post({ action: "set", ticker: sf.t.value, field: sf.f.value, value: sf.v.value, note: sf.note.value }, "Saved."); });
+  $("#cov-asg-f").addEventListener("submit", (e) => { e.preventDefault(); const f = e.target; if (f.item.value.trim()) post({ action: "assign", ticker: f.t.value, agent: f.ag.value, item: f.item.value }, "Assigned."); });
+  const gf = $("#cov-grp");
+  gf.addEventListener("submit", (e) => { e.preventDefault(); if (gf.name.value.trim()) post({ action: "group-create", name: gf.name.value }, "Group created."); });
+  gf.querySelectorAll("[data-gm]").forEach((b) => b.addEventListener("click", () => post({ action: "group-member", group_id: gf.g.value, ticker: gf.t.value, on: b.dataset.gm === "1" }, "Group updated.")));
+}
+
+const VIEWS = { coverage: viewCoverage, command: viewCommand, recs: viewRecs, opps: viewOppsC, earnings2: viewEarnC, book: viewBook, log: viewLog, overview: viewOverview, stocks: viewStocks, earnings: viewEarnings, market: viewMarket, opportunities: viewOpps, oversold: viewOversold, reports: viewReports, track: viewTrack, discovery: viewDiscovery, ops: viewOps, settings: viewSettings };
 const skel = () => `<div class="list">${'<div class="skeleton"></div>'.repeat(6)}</div>`;
 function whenPlotly(fn, tries = 0) { if (window.Plotly) fn(); else if (tries < 60) setTimeout(() => whenPlotly(fn, tries + 1), 100); else { const e = $("#treemap"); if (e) e.innerHTML = `<div class="empty">Heatmap library unavailable (offline?).</div>`; } }
 
