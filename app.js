@@ -1275,9 +1275,9 @@ async function viewCommand(main) {
   </section>
   <section class="cc-sec"><h2>Today's Decisions</h2>
     <p class="sub">${B.has_prev ? (B.changes.length ? `Changed since the last briefing: ${B.changes.map((x) => `${esc(x.ticker)} ${esc(x.from)} to ${esc(x.to)}`).join(", ")}.` : "No call changed since the last briefing.") : "First briefing on record: today's calls are the starting book."}</p>
-    <div class="tbl-wrap"><table class="sortable" data-sort><thead><tr><th>Ticker</th><th>Action</th><th>Conviction</th><th class="num">Paper Size</th><th>Reason</th><th>Invalidation</th></tr></thead><tbody>
+    <div class="tbl-wrap"><table class="sortable" data-sort><thead><tr><th>Ticker</th><th>Action</th><th>Conviction</th>${k.sizes_shown ? `<th class="num">Paper Size</th>` : ""}<th>Reason</th><th>Invalidation</th></tr></thead><tbody>
       ${decisions.map((c) => `<tr><td><a href="#/recs?t=${esc(c.ticker)}"><b>${esc(c.ticker)}</b></a></td><td data-v="${esc(c.call)}">${callPill(c)}</td><td>${esc(c.conviction.level || "None")}</td>
-        <td class="num">${c.size ? `${c.size.paper_pct}% <span class="faint">pending</span>` : "—"}</td><td>${esc(c.headline.replace(/^[^:]+: /, ""))}</td><td>${c.invalidation != null ? money2(c.invalidation) : "—"}</td></tr>`).join("")}
+        ${k.sizes_shown ? `<td class="num">${c.size ? `${c.size.paper_pct}% <span class="faint">pending</span>` : "—"}</td>` : ""}<td>${esc(c.headline.replace(/^[^:]+: /, ""))}</td><td>${c.invalidation != null ? money2(c.invalidation) : "—"}</td></tr>`).join("")}
     </tbody></table></div></section>
   ${watchHtml(k.watch)}
   <section class="cc-sec"><h2>Active Book</h2>
@@ -1410,13 +1410,13 @@ async function viewBook(main) {
   const paper = (k.cards || []).filter((c) => c.size);
   main.innerHTML = `<div class="head"><div><h1>Position Book</h1><p class="sub">Your real positions, and separately a hypothetical paper book of the committee's calls.</p></div></div>
     <section class="cc-sec"><h2>Your Positions</h2><p>No positions recorded. You can enter holdings under Settings (kept on this Mac only); the committee never trades and has no broker connection.</p></section>
-    <section class="cc-sec"><h2>Paper Book (Hypothetical)</h2>
+${k.sizes_shown ? `    <section class="cc-sec"><h2>Paper Book (Hypothetical)</h2>
       ${!k.sizes_shown ? `<p class="faint">Paper sizes are hidden here until you approve how sizing works.</p>` :
         paper.length ? `<p class="sub">Sizes are illustrative bands by conviction (Low 1%, Medium 2%, High 3%). <b>Pending your approval.</b> Not advice, never traded.</p>
         <div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Call</th><th>Conviction</th><th class="num">Paper Size</th><th class="num">Entry</th><th class="num">Invalidation</th></tr></thead><tbody>
         ${paper.map((c) => `<tr><td><b>${esc(c.ticker)}</b></td><td>${callPill(c)}</td><td>${esc(c.conviction.level)}</td><td class="num">${c.size.paper_pct}%</td><td class="num">${money2(c.entry)}</td><td class="num">${money2(c.invalidation)}</td></tr>`).join("")}</tbody></table></div>` :
         `<p>No paper positions: the committee has no buying calls today.</p>`}
-    </section>${disclosure(k.disclosure)}`;
+    </section>` : ""}${disclosure(k.disclosure)}`;
 }
 
 async function viewLog(main) {
