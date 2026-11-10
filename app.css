@@ -365,3 +365,58 @@ details > summary:hover { color: var(--text); }
 
 /* Read-only snapshot banner (export-static only) */
 .snapshot-banner { padding: 8px 16px; font-size: 13px; color: var(--text); background: var(--panel2); border-bottom: 1px solid var(--line); border-left: 3px solid var(--either); }
+
+/* Scenarios (platform 2c) */
+.scen { margin: 0 0 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.scen h3 { margin: 0 0 6px; font-size: 15px; }
+.scen-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.scen-c { padding: 10px 12px; border-left: 3px solid var(--line2); background: var(--panel2); }
+.scen-bull { border-left-color: var(--up); } .scen-bear { border-left-color: var(--down); } .scen-base { border-left-color: var(--either); }
+.scen-c h4 { margin: 0 0 6px; font-size: 14px; } .scen-c p { margin: 0 0 8px; font-size: 13px; color: var(--text); }
+.scen-l { font-size: 12.5px; color: var(--muted); margin-bottom: 6px; } .scen-l ul { margin: 2px 0 0; padding-left: 16px; } .scen-l li { color: var(--text); }
+.scen-a { font-size: 12px !important; color: var(--muted) !important; }
+@media (max-width: 700px) { .scen-grid { grid-template-columns: 1fr; } .scen { padding: 12px; } }
+
+/* Platform Phase 3: market conditions and key levels */
+.mkt-intel { margin: 0 0 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.mkt-intel .bl { margin: 0 0 10px; padding-left: 12px; border-left: 3px solid var(--line2); font-size: 15px; line-height: 1.4; font-weight: 600; color: var(--text); }
+.mkt-intel .bl-down { border-left-color: var(--down); } .mkt-intel .bl-up { border-left-color: var(--up); } .mkt-intel .bl-either { border-left-color: var(--either); }
+.mkt-intel h4 { margin: 8px 0 4px; font-size: 13px; color: var(--muted); } .mkt-intel ul { margin: 0; padding-left: 18px; } .mkt-intel li { margin: 4px 0; }
+.mkt-intel details { margin-top: 10px; } .mkt-intel summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.ties { margin: 0 0 16px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.ties h3 { margin: 0 0 6px; font-size: 15px; } .ties h4 { margin: 0 0 4px; font-size: 12.5px; color: var(--muted); }
+.ties-g { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } .ties ul { margin: 0; padding-left: 16px; } .ties li { margin: 3px 0; font-size: 13px; }
+.ties-m { margin: 8px 0 0; font-size: 13.5px; color: var(--text); }
+
+/* Challenge (platform Phase 4) */
+.chal { margin: 0 0 16px; padding: 12px 16px; border: 1px solid var(--line); border-left: 3px solid var(--either); border-radius: var(--r); background: var(--panel); }
+.chal h3 { margin: 0 0 6px; font-size: 15px; } .chal h4 { margin: 8px 0 4px; font-size: 12.5px; color: var(--muted); }
+.chal-cio { margin: 0 0 8px; font-weight: 600; color: var(--text); font-size: 13.5px; }
+.chal ul { margin: 0; padding-left: 18px; } .chal li { margin: 4px 0; font-size: 13px; }
+.chal summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-top: 8px; }
+
+/* Platform Phase 5 */
+.pipe { margin: 0 0 20px; } .pipe h2 { margin: 0 0 4px; }
+.ocheck { margin: 0 0 16px; padding: 12px 16px; border: 1px solid var(--line); border-left: 3px solid var(--line2); border-radius: var(--r); background: var(--panel); }
+.ocheck.oc-no { border-left-color: var(--down); } .ocheck.oc-ok { border-left-color: var(--either); }
+.ocheck h3 { margin: 0 0 6px; font-size: 15px; } .oc-head { margin: 0; font-weight: 600; color: var(--text); font-size: 13.5px; }
+.ocheck summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-top: 8px; } .ocheck ul { margin: 6px 0; padding-left: 18px; } .ocheck li { font-size: 13px; margin: 4px 0; }
+
+/* Reports (platform Phase 6) */
+.reps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+.rep { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.rep h3 { margin: 0 0 6px; font-size: 15px; } .rep h4 { margin: 8px 0 2px; font-size: 13px; }
+.rep-v { margin: 0 0 8px; font-weight: 600; color: var(--text); font-size: 13.5px; padding-left: 10px; border-left: 3px solid var(--either); }
+.rep details { margin: 4px 0; } .rep summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.rep ul { margin: 4px 0; padding-left: 18px; } .rep li { font-size: 13px; margin: 3px 0; }
+.unproven { margin: 4px 0 10px; padding-left: 18px; } .unproven li { margin: 4px 0; font-size: 13px; }
+@media (max-width: 900px) { .reps { grid-template-columns: 1fr; } }
+
+/* Long-term view, discovery, settings */
+.lt { margin: 0 0 16px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.lt h3, .disc h3 { margin: 0 0 6px; font-size: 15px; } .lt h4 { margin: 8px 0 2px; font-size: 12.5px; color: var(--muted); }
+.lt-labels { list-style: none; margin: 0; padding: 0; } .lt-labels li { margin: 3px 0; font-size: 13px; }
+.lt-v { margin: 6px 0 0; font-size: 13.5px; color: var(--text); } .lt summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-top: 8px; }
+.lt ul { padding-left: 18px; }
+.disc { margin: 0 0 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+#hold-form input { width: 100%; max-width: 140px; padding: 4px 6px; background: var(--panel2); color: var(--text); border: 1px solid var(--line2); border-radius: 6px; }

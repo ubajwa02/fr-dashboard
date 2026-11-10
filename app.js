@@ -35,6 +35,7 @@ function staticPath(path) {
   const u = new URL(path, "http://x"), t = (u.searchParams.get("t") || "").toUpperCase().replace(/[^A-Z0-9.-]/g, "");
   if (u.pathname === "/api/stock") return `data/stock/${t}.json`;
   if (u.pathname === "/api/brief") return `data/brief/${t}.json`;
+  if (u.pathname === "/api/report") return `data/report/${(u.searchParams.get("id") || "").replace(/[^a-z0-9_-]/gi, "")}.json`;
   if (u.pathname.startsWith("/api/prices/")) return `data/prices/${u.pathname.split("/").pop().toUpperCase().replace(/[^A-Z0-9.-]/g, "")}.json`;
   return `data/${u.pathname.replace("/api/", "")}.json`;
 }
@@ -173,6 +174,19 @@ async function viewEarnings(main) {
   main.querySelectorAll(".ecard").forEach((b) => b.addEventListener("click", () => openStock(b.dataset.t)));
 }
 
+function intelMarketHtml(i, cio) {
+  if (!i) return "";
+  const col = { RED: "down", YELLOW: "either", GREEN: "up", EXCEPTIONAL: "up", UNKNOWN: "none" }[i.regime.state] || "none";
+  return `<section class="mkt-intel" aria-label="Market conditions"><p class="bl bl-${col}">${esc(i.regime_text)}</p>
+    ${(i.drivers || []).length ? `<h4>What's driving the market</h4><ul>${i.drivers.map((d) => `<li>${esc(d.text)} ${TAG(d.tag)}</li>`).join("")}</ul>` : ""}
+    <details><summary>Detail: checks, sectors, same-risk groups, event days</summary>
+      <ul>${i.regime.checks.map((c) => `<li>${c.ok === true ? "✓" : c.ok === false ? "✗" : "?"} ${esc(c.text)}</li>`).join("")}</ul>
+      <p class="faint">Sectors vs SPY (20 sessions): ${(i.rotation || []).map((r) => `${esc(r.sector)} ${r.rel20 > 0 ? "+" : ""}${r.rel20}`).join(" · ")}</p>
+      ${(i.clusters || []).length ? `<p class="faint">Moving as one risk (60-day correlation ≥ 0.7): ${i.clusters.map((g) => esc(g.join(", "))).join(" | ")}</p>` : ""}
+      ${Object.values(i.catalysts || {}).flat().map((t) => `<p class="faint">${esc(t)}</p>`).join("")}
+      <p class="faint">As of the ${esc(i.asof)} close. The state is a permission label, never a buy or sell signal.</p></details>
+    ${cio ? `<p class="faint" style="margin:8px 0 0">${esc(cio.statement)}</p>` : ""}</section>`;
+}
 async function viewMarket(main) {
   main.innerHTML = skel();
   const m = await load("/api/market");
@@ -182,6 +196,7 @@ async function viewMarket(main) {
   const now = new Date();
   main.innerHTML = `<div class="head"><div><h1>Market</h1><p class="sub">${esc(state.home.mood)}</p></div>
     <div class="controls"><span class="faint">Heatmap colour:</span><button class="btn on" data-hm="change_1d">1 day</button><button class="btn" data-hm="ret_5d">5 days</button></div></div>
+    ${intelMarketHtml(m.intel, m.market_cio)}
     <div class="card"><h4>Tech &amp; AI heatmap · size = market value</h4><div id="treemap" style="height:440px" role="img" aria-label="Treemap of tracked stocks by market value coloured by price change"></div></div>
     <div class="two" style="margin-top:16px">
       <div class="card"><h4>QQQ vs SPY · last 12 months (rebased to 100)</h4><div id="bench" style="height:300px"></div></div>
@@ -226,12 +241,36 @@ function benchChart(qqq, spy) {
   new ResizeObserver(() => ch.applyOptions({ width: el.clientWidth })).observe(el);
 }
 
+function pipelineHtml(pl) {
+  if (!pl) return "";
+  const KIND = { scenario_bull: "breakout setup", scenario_bear: "breakdown setup", rec_long: "buy call", rec_short: "bearish call" };
+  const rows = pl.opportunities || [];
+  const counts = Object.entries(pl.by_state || {}).map(([k, n]) => `${n} ${esc(k)}`).join(" · ");
+  return `<section class="pipe" aria-label="Opportunities pipeline"><h2>Opportunities pipeline</h2>
+    <p class="sub">Every live setup moves through 11 checks. Each row shows how far it got and the single thing blocking it. ${rows.length ? counts : "No live setups today."}</p>
+    ${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Stock</th><th>Setup</th><th>Reached</th><th>Blocked by</th><th></th></tr></thead><tbody>
+    ${rows.map((r) => `<tr><td><a href="#" data-open="${esc(r.subject)}"><b>${esc(r.subject)}</b></a></td><td>${esc(KIND[r.kind] || r.kind)}</td><td>${r.state}/11 ${esc(r.state_name)}</td>
+      <td>${esc(r.blocker || "—")}</td><td>${r.state === 10 && !STATIC ? `<button class="btn" data-dec="approved" data-opp="${esc(r.opp_id)}">Approve</button> <button class="btn ghost" data-dec="rejected" data-opp="${esc(r.opp_id)}">Reject</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}
+    ${(pl.unproven || []).length ? `<h3 style="margin-top:14px">Unproven setups</h3><p class="sub">These pass every check except one: the setup type has no track record yet. Shown for information, never eligible, and scored in the forecast ledger like every scenario.</p>
+      <ul class="unproven">${pl.unproven.map((u) => `<li><a href="#" data-open="${esc(u.subject)}"><b>${esc(u.subject)}</b></a> ${esc(KIND[u.kind] || u.kind)}: <span class="arw-two">${esc(u.label)}</span>${u.options_check ? ` · Options: ${esc(u.options_check)}` : ""}</li>`).join("")}</ul>` : ""}
+    <p class="faint" style="font-size:12px">"Quantitative validation" blocks setups until a signal type has passed its pre-registered test and 30+ live results: none has yet. Approving only records your decision; nothing is traded (there is no broker connection).</p></section>`;
+}
+async function decide(oppId, decision) {
+  try { await api("/api/decision", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ opp_id: oppId, decision }) }); state.cache = {}; route(); }
+  catch (e) { alert("Not recorded: " + e.message); }
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest("[data-dec]");
+  if (b) { e.preventDefault(); decide(b.dataset.opp, b.dataset.dec); return; }
+  const a = e.target.closest && e.target.closest(".pipe [data-open]");
+  if (a) { e.preventDefault(); openStock(a.dataset.open); }
+});
 async function viewOpps(main) {
   main.innerHTML = skel();
   const o = await load("/api/opportunities");
   let sortKey = "fscore", asc = false, q = "", status = "ranked";
   const cols = [["ticker", "Ticker"], ["verdict", "Verdict"], ["fscore", "F"], ["sscore", "S"], ["price", "Price"], ["change_1d", "Day"], ["todo", "What to do"], ["signals", "Why it's on the radar"]];
-  main.innerHTML = `<div class="head"><div><h1>Opportunities</h1><p class="sub">Companies outside your list. <b>Ranked</b> names have enough verified data to score; <b>observation</b> names don't yet.</p>
+  main.innerHTML = `${pipelineHtml(o.pipeline)}<div class="head"><div><h1>Opportunities</h1><p class="sub">Companies outside your list. <b>Ranked</b> names have enough verified data to score; <b>observation</b> names don't yet.</p>
     <p class="preamble" role="note">${esc(state.home.preamble || "")}</p></div>
     <div class="controls"><input type="search" id="q" placeholder="Filter ticker, name, signal…" aria-label="Filter"><select id="st" aria-label="Status filter">
     <option value="ranked">Ranked</option><option value="observation">Observation</option><option value="all">All</option></select></div></div>
@@ -253,9 +292,110 @@ async function viewOpps(main) {
   draw();
 }
 
+function ledgerHtml(l, minSample) {
+  if (!l) return "";
+  return `<h2>Forecast ledger: hit vs benchmark (new)</h2>
+    <p class="sub">From ${esc((l.first || "now").slice(0, 10))}, every new buy or bearish call is also written to the forecast ledger before its window opens: beat QQQ (or underperform it, for bearish calls) over 15 trading days, entry at the next session's close. QQQ is judged against SPY. Same hit definition as the live table above (beat the benchmark); this ledger also records the entry rule before the window opens.</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Recorded</th><th>Scored</th><th>Beat benchmark</th><th>Hit rate</th><th>Mean excess</th><th>Waiting</th></tr></thead><tbody>
+    <tr><td class="num">${l.recorded}</td><td class="num">${l.scored}</td><td class="num">${l.hits}</td><td class="num">${l.hit_rate == null ? "—" : l.hit_rate + "%"}</td>
+      <td class="num ${dirCls(l.mean_excess)}">${l.mean_excess == null ? "—" : pct(l.mean_excess)}</td><td class="num">${l.pending}</td></tr></tbody></table></div>
+    ${l.scored < minSample ? `<p class="faint" style="font-size:12px">${l.scored} scored so far: too few to judge (needs ${minSample}+). Signal status: experimental, so no probability is shown.</p>` : ""}`;
+}
+/* Reports (platform Phase 6): latest weekly / premarket / post-market, verdict first, detail folded; archive. */
+function reportHtml(r, label) {
+  if (!r) return `<div class="rep"><h3>${esc(label)}</h3><p class="faint">Not generated yet.</p></div>`;
+  const items = (xs) => `<ul>${xs.map((x) => `<li>${esc(x.text)} ${TAG(x.tag)}</li>`).join("")}</ul>`;
+  return `<div class="rep"><h3>${esc(r.title)}</h3><p class="rep-v">${esc(r.verdict.text)} ${TAG(r.verdict.tag)}</p>
+    ${r.sections.map((s, i) => `<details${i === 0 ? " open" : ""}><summary>${esc(s.title)}</summary>${items(s.items)}</details>`).join("")}
+    ${(r.stocks || []).length ? `<details><summary>Priority stocks: ${r.stocks.map((s) => esc(s.subject)).join(", ")}</summary>${r.stocks.map((s) => `<h4>${esc(s.subject)}</h4>${items(s.items)}`).join("")}<p class="faint">${esc(r.stocks_note || "")}</p></details>` : ""}
+    <p class="faint" style="font-size:11px;margin:6px 0 0">Saved ${esc(dateFmt(r.created_at))}. Built by fixed rules from stored records; saved reports are never edited.</p></div>`;
+}
+async function viewReports(main) {
+  main.innerHTML = skel();
+  const d = await load("/api/reports");
+  main.innerHTML = `<div class="head"><div><h1>Reports</h1><p class="sub">The weekly outlook sets the frame (Sundays); the premarket plan (about 8:45 ET) and the post-market review (about 4:35 ET) follow each trading day.</p></div></div>
+    <div class="reps">${reportHtml(d.premarket, "Premarket plan")}${reportHtml(d.postmarket, "Post-market review")}${reportHtml(d.weekly, "Weekly outlook")}</div>
+    <h2>Archive</h2><div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Report</th><th></th></tr></thead><tbody>
+    ${(d.archive || []).map((a) => `<tr><td class="num">${esc(a.report_date)}</td><td>${esc({ weekly: "Weekly outlook", premarket: "Premarket plan", postmarket: "Post-market review" }[a.kind])}</td>
+      <td><button class="btn ghost" data-rep="${esc(a.report_id)}">Open</button></td></tr>`).join("") || `<tr><td colspan="3" class="empty">No reports yet.</td></tr>`}</tbody></table></div>
+    <div id="rep-open"></div>`;
+  main.querySelectorAll("[data-rep]").forEach((b) => b.addEventListener("click", async () => {
+    try { const r = await load(`/api/report?id=${encodeURIComponent(b.dataset.rep)}`); $("#rep-open").innerHTML = reportHtml(r, ""); $("#rep-open").scrollIntoView(); }
+    catch (e) { $("#rep-open").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  }));
+}
+/* Forecast performance (platform Phase 7): honest counts, "too few" until 30 results, proposals never applied. */
+function perfHtml(pf) {
+  if (!pf) return "";
+  const rate = (r) => esc(r.text);
+  return `<h2>Forecast performance by type</h2><p class="sub">${esc(pf.evidence)}</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Forecast type</th><th>Status</th><th>Recorded</th><th>Triggered</th><th>Not triggered</th><th>Matured</th><th>Hit vs benchmark</th><th>Worst drawdown</th><th>Calibration</th></tr></thead><tbody>
+    ${pf.by_type.map((r) => `<tr><td>${esc(r.signal)}</td><td>${esc(r.status)}</td><td class="num">${r.recorded}</td><td class="num">${r.triggered}</td><td class="num">${r.not_triggered}</td>
+      <td class="num">${r.matured}</td><td>${rate(r.hit_vs_benchmark)}</td><td class="num">${r.worst_drawdown == null ? "—" : pct(r.worst_drawdown)}</td><td class="faint">${esc(r.calibration.note || ("Brier " + r.calibration.brier))}</td></tr>`).join("")}</tbody></table></div>
+    <details><summary>By department, analysts, live attribution, revisions and proposals</summary>
+      <h4>By department</h4><ul>${pf.by_department.map((d) => `<li>${esc(d.department)}: ${d.recorded} recorded, ${d.matured} matured, hit vs benchmark ${rate(d.hit_vs_benchmark)}</li>`).join("")}</ul>
+      <h4>Analyst scorecards</h4><ul>${pf.scorecards.map((a) => `<li>${esc(a.analyst)}: ${esc(a.result)}</li>`).join("")}</ul>
+      <h4>Does each layer help? (live, accumulating)</h4><ul>${pf.attribution_live.map((a) => `<li>${esc(a.feature)}: ${a.note ? esc(a.note) : a.groups.map((g) => `${esc(String(g.value))} → ${esc(g.text)}`).join("; ")}</li>`).join("")}</ul>
+      <p class="faint">${esc(pf.ablation_note)}</p>
+      <h4>Proposals (suggestions only; nothing changes without your approval)</h4><ul>${pf.proposals.map((p) => `<li>${esc(p.proposal)}: <span class="faint">${esc(p.evidence)}</span></li>`).join("")}</ul></details>`;
+}
+async function viewDiscovery(main) {
+  main.innerHTML = skel();
+  const d = await load("/api/discovery");
+  const card = (t) => `<div class="disc"><h3><a href="#" data-open="${esc(t.subject)}">${esc(t.subject)}</a> <span class="faint">${esc(t.universe)}${(d.new_last_30_days || []).includes(t.subject) ? " · new" : ""}</span></h3>
+    ${labelsHtml(t.labels)}<p class="lt-v">${esc(t.valuation.summary ? "Value range " + t.valuation.summary : "No valuation range")} ${TAG("ESTIMATE")}</p>
+    <p class="faint">Quality: grade ${esc(t.quality.grade || "?")}; sales growth ${t.quality.rev_growth_pct != null ? t.quality.rev_growth_pct.toFixed(0) + "%" : "—"}; operating margin ${t.quality.operating_margin_pct != null ? t.quality.operating_margin_pct.toFixed(0) + "%" : "—"}. Catalysts: ${esc(t.catalysts.map((c) => c.text).join("; "))}. Risks: ${esc(t.risks.map((r) => r.text).slice(0, 2).join("; ") || "none flagged")}. Research status: ${esc(t.research_status)}.</p></div>`;
+  main.innerHTML = `<div class="head"><div><h1>Investment discovery</h1><p class="sub">Names beyond your list, each with a long-term thesis built from stored data. A strong business, an attractive valuation, an attractive investment and a short-term trade are separate questions. Ranges are estimates under stated assumptions; no probabilities.</p></div></div>
+    ${(d.top || []).map(card).join("") || `<p class="faint">No theses yet: they are built after the next refresh.</p>`}
+    ${(d.rest || []).length ? `<details><summary>${d.rest.length} more</summary><ul>${d.rest.map((r) => `<li><a href="#" data-open="${esc(r.subject)}"><b>${esc(r.subject)}</b></a>: business ${esc(r.labels.strong_business.answer)}, valuation ${esc(r.labels.attractive_valuation.answer)}, investment ${esc(r.labels.attractive_investment.answer)}${r.valuation ? " · " + esc(r.valuation) : ""}</li>`).join("")}</ul></details>` : ""}`;
+  main.querySelectorAll("[data-open]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); openStock(a.dataset.open); }));
+}
+async function viewOps(main) {
+  if (STATIC) { main.innerHTML = `<div class="head"><h1>Research operations</h1></div><p class="faint">Not included in the shared snapshot.</p>`; return; }
+  main.innerHTML = skel();
+  const o = await api("/api/ops");
+  const tbl = (rows, cols) => `<div class="tbl-wrap"><table><thead><tr>${cols.map((c) => `<th>${esc(c[1])}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td>${esc(String(r[c[0]] ?? "—"))}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${cols.length}" class="empty">none</td></tr>`}</tbody></table></div>`;
+  main.innerHTML = `<div class="head"><div><h1>Research operations</h1><p class="sub">System state: jobs, data freshness, schedules, open questions, signal registry. Generated ${esc(dateFmt(o.generated_at))}.</p></div></div>
+    <h2>System issues</h2>${o.issues.length ? `<ul>${o.issues.map((i) => `<li><b>${esc(i.severity)}</b> ${esc(i.area)}: ${esc(i.message)}</li>`).join("")}</ul>` : `<p class="faint">None: all checks pass.</p>`}
+    <h2>Data freshness</h2>${tbl(o.staleness, [["data", "Data"], ["latest", "Latest"]])}
+    <h2>Scheduled reports</h2>${tbl(o.schedule.map((s) => ({ ...s, last: s.last ? s.last.report_date : "—" })), [["report", "Report"], ["when", "When"], ["last", "Last saved"]])}
+    <h2>Signal registry</h2>${tbl(o.signals, [["signal_id", "Signal"], ["status", "Status"], ["updated_at", "Updated"]])}
+    <h2>Forward-only research</h2>${tbl(o.research_signals, [["signal", "Signal"], ["status", "Status"], ["cases", "Live cases"], ["text", "Progress"], ["prereg", "Pre-registration"]])}
+    <details><summary>Jobs, failures (48 h), blocked forecasts, open questions</summary>
+      <h3>Recent jobs</h3>${tbl(o.runs, [["kind", "Kind"], ["started_at", "Started"], ["finished_at", "Finished"], ["status", "Status"]])}
+      <h3>Source problems (48 h)</h3>${tbl(o.problems_48h, [["source", "Source"], ["status", "Status"], ["finished_at", "When"], ["error", "Detail"]])}
+      <h3>Blocked forecasts</h3>${tbl(o.blocked, [["subject", "Subject"], ["on_date", "Date"], ["kind", "Kind"], ["reason", "Reason"]])}
+      <h3>Open research questions</h3>${tbl(o.investigations, [["subject", "Subject"], ["question", "Question"], ["reason", "Why"]])}</details>`;
+}
+async function viewSettings(main) {
+  if (STATIC) { main.innerHTML = `<div class="head"><h1>Settings</h1></div><p class="faint">Not included in the shared snapshot.</p>`; return; }
+  main.innerHTML = skel();
+  const h = await api("/api/holdings");
+  const rows = (h.holdings || []).concat([{}, {}, {}]);
+  const e = h.exposure || {};
+  main.innerHTML = `<div class="head"><div><h1>Settings</h1><p class="sub">Your holdings stay on this Mac (data/holdings.yaml). They are never committed, pushed or included in the shared snapshot.</p></div></div>
+    <h2>Holdings</h2><p class="sub">Enter shares, or a percent of your portfolio (use one or the other for all rows). Used only for exposure facts and the 40% sector check. No position sizes are suggested.</p>
+    <form id="hold-form"><div class="tbl-wrap"><table><thead><tr><th>Ticker</th><th>Shares</th><th>or % of portfolio</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr><td><input name="t" value="${esc(r.ticker || "")}" maxlength="10" aria-label="Ticker"></td><td><input name="s" value="${esc(r.shares ?? "")}" inputmode="decimal" aria-label="Shares"></td><td><input name="p" value="${esc(r.pct ?? "")}" inputmode="decimal" aria-label="Percent"></td></tr>`).join("")}
+    </tbody></table></div><button class="btn" type="submit">Save holdings</button> <span id="hold-msg" class="faint"></span></form>
+    <h2>Exposure</h2>${!e.entered ? `<p class="faint">${esc(e.note || "No holdings entered.")}</p>` : `
+      <p>By sector fund: ${Object.entries(e.by_sector).map(([k, v]) => `${esc(k)} ${v}%`).join(" · ")}</p>
+      ${Object.keys(e.by_group || {}).length ? `<p>Same-risk groups: ${Object.entries(e.by_group).map(([k, v]) => `${esc(k)} ${v}%`).join(" · ")}</p>` : ""}
+      ${(e.warnings || []).length ? `<ul>${e.warnings.map((w) => `<li class="arw-down">${esc(w)}</li>`).join("")}</ul>` : `<p class="faint">No concentration warnings.</p>`}
+      <p class="faint">${esc(e.note)}</p>`}`;
+  $("#hold-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const trs = [...document.querySelectorAll("#hold-form tbody tr")];
+    const holdings = trs.map((tr) => ({ ticker: tr.querySelector("[name=t]").value, shares: tr.querySelector("[name=s]").value, pct: tr.querySelector("[name=p]").value })).filter((x) => x.ticker.trim());
+    try { const r = await api("/api/holdings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ holdings }) }); $("#hold-msg").textContent = `Saved ${r.saved}.`; state.cache = {}; viewSettings(main); }
+    catch (err) { $("#hold-msg").textContent = "Not saved: " + err.message; }
+  });
+}
 async function viewTrack(main) {
   main.innerHTML = skel();
   const t = await load("/api/track");
+  let pf = null;
+  try { pf = await load("/api/performance"); } catch (e) { pf = null; }
   const bt = t.backtest || {};
   const btRows = Object.entries(bt).filter(([, v]) => v && v.excess_return_by_bucket);
   const evaluated = t.independent_evaluated;
@@ -272,16 +412,20 @@ async function viewTrack(main) {
   main.innerHTML = `<div class="evidence ev-${esc(ev.state || "none")}" role="alert" aria-live="polite"><b>Evidence: </b>${esc(ev.banner || "Evidence state unavailable.")}${(ev.details || []).map((d) => `<div>${esc(d)}</div>`).join("")}</div>
     <div class="head"><div><h1>Track record</h1><p class="sub">Hypothetical research performance — no trades are executed. Original calls are locked and never edited.</p></div></div>
     ${ruleTable}
-    <h2>Live hit rate (matured calls)</h2><p class="sub">Independent buy/bearish calls whose horizon has passed. A hit = the price moved the called way. 95% Wilson interval.</p>
-    <div class="tbl-wrap"><table><thead><tr><th>Horizon</th><th>Calls</th><th>Hits</th><th>Hit rate</th><th>95% CI</th><th>Reading</th></tr></thead><tbody>
+    <h2>Live hit rate vs QQQ (matured calls)</h2><p class="sub">Independent buy/bearish calls whose horizon has passed. A hit = the stock beat QQQ (for a bearish call: lagged QQQ), the same test as the back-test and the forecast ledger; QQQ itself is judged against SPY. 95% Wilson interval. The last column is the older raw measure (did the price move the called way), kept for reference only.</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Horizon</th><th>Calls</th><th>Beat QQQ</th><th>Hit rate vs QQQ</th><th>95% CI</th><th>Reading</th><th>Raw direction hit (secondary)</th></tr></thead><tbody>
     ${hr.map((r) => `<tr><td>${r.horizon_days} days</td><td class="num">${r.n}</td><td class="num">${r.hits}</td><td class="num">${pc(r.hit_rate)}</td>
-      <td class="num">${pc(r.ci95[0])}–${pc(r.ci95[1])}</td><td>${r.direction === "inconclusive" ? "includes 50%: not demonstrated" : r.direction === "positive" ? "above 50%" : "below 50%"}</td></tr>`).join("")
-      || `<tr><td colspan="6" class="empty">No matured buy or bearish calls yet.</td></tr>`}</tbody></table></div>
+      <td class="num">${pc(r.ci95[0])}–${pc(r.ci95[1])}</td><td>${r.direction === "inconclusive" ? "includes 50%: not demonstrated" : r.direction === "positive" ? "above 50%" : "below 50%"}</td>
+      <td class="num faint">${r.raw_hit_rate == null ? "—" : pc(r.raw_hit_rate) + " (" + r.raw_hits + "/" + r.raw_n + ")"}</td></tr>`).join("")
+      || `<tr><td colspan="7" class="empty">No matured buy or bearish calls yet.</td></tr>`}</tbody></table></div>
+    <p class="faint" style="font-size:12px">Evidence gate v${esc(ev.gate_version || "2")}: since 2026-11-10 a live hit means beating QQQ. Stored outcomes are unchanged; only the headline measure moved.</p>
+    ${ledgerHtml(t.ledger, t.min_sample)}
+    ${perfHtml(pf)}
     <h2>Max drawdown per call</h2><p class="sub">Worst move against each evaluated call before its horizon ended (longest matured horizon).</p>
-    <div class="tbl-wrap"><table><thead><tr><th>When</th><th>Ticker</th><th>Call</th><th>Horizon</th><th>Return</th><th>vs QQQ</th><th>Max drawdown</th><th>Hit</th></tr></thead><tbody>
+    <div class="tbl-wrap"><table><thead><tr><th>When</th><th>Ticker</th><th>Call</th><th>Horizon</th><th>Return</th><th>vs QQQ</th><th>Max drawdown</th><th>Beat QQQ</th><th>Raw direction</th></tr></thead><tbody>
     ${(t.drawdowns || []).map((r) => `<tr><td class="num">${esc(dateFmt(r.created_at))}</td><td><b>${esc(r.ticker)}</b></td><td>${esc(r.classification)}</td><td>${r.horizon_days}d</td>
-      <td class="num ${dirCls(r.ret)}">${pct(r.ret)}</td><td class="num ${dirCls(r.excess_qqq)}">${pct(r.excess_qqq)}</td><td class="num ${dirCls(r.max_drawdown_pct)}">${pct(r.max_drawdown_pct)}</td><td>${r.hit == null ? "—" : r.hit ? "yes" : "no"}</td></tr>`).join("")
-      || `<tr><td colspan="8" class="empty">No evaluated buy or bearish calls yet.</td></tr>`}</tbody></table></div>
+      <td class="num ${dirCls(r.ret)}">${pct(r.ret)}</td><td class="num ${dirCls(r.excess_qqq)}">${pct(r.excess_qqq)}</td><td class="num ${dirCls(r.max_drawdown_pct)}">${pct(r.max_drawdown_pct)}</td><td>${r.hit_vs_qqq == null ? "—" : r.hit_vs_qqq ? "yes" : "no"}</td><td class="faint">${r.hit == null ? "—" : r.hit ? "yes" : "no"}</td></tr>`).join("")
+      || `<tr><td colspan="9" class="empty">No evaluated buy or bearish calls yet.</td></tr>`}</tbody></table></div>
     ${evaluated < t.min_sample ? `<div class="notice">Small sample: ${evaluated} call(s) evaluated so far. No performance claim is made until at least ${t.min_sample} independent calls have results.</div>` : ""}
     <div class="tiles"><div class="tile"><span>Calls recorded (raw)</span><b class="num">${t.n_recs}</b><small>since ${esc((t.first || "").slice(0, 10))}</small></div>
       <div class="tile"><span>Independent calls</span><b class="num">${t.n_independent ?? "—"}</b><small>new verdict/agreement, or 10+ trading days apart</small></div>
@@ -434,6 +578,80 @@ function mentorHtml(t, m) {
     <p class="faint" style="font-size:11px;margin:8px 0 0">Built from the same filings, estimates, news and relationship map as the rest of this page, using fixed rules (no AI writing). Information only — never changes the scores or verdict, and not a buy or sell call.</p></section>`;
 }
 
+/* Scenarios (platform 2c): bull / base / bear with what confirms it and what would change our mind. Display-only. */
+/* Key levels + "moves with" (platform 3a/3d). Short, plain English, display-only. */
+/* Challenge (platform Phase 4, rule-based): max 3 items up front, the rest folded. Display-only. */
+/* Options check (platform 5a): appears only while a scenario is live. Verdict first. Research only. */
+/* Long-term view: four separate answers, valuation range (ESTIMATE) with every assumption; rest folded. */
+const ANS = { yes: ["arw-up", "yes"], no: ["arw-down", "no"], unclear: ["arw-two", "unclear"] };
+const LBL = { strong_business: "Strong business?", attractive_valuation: "Attractive valuation?", attractive_investment: "Attractive investment?", attractive_short_term_trade: "Attractive short-term trade?" };
+function labelsHtml(l) {
+  return `<ul class="lt-labels">${Object.entries(l).map(([k, v]) => `<li><b>${esc(LBL[k] || k)}</b> <span class="${ANS[v.answer][0]}">${ANS[v.answer][1]}</span> <span class="faint">${esc(v.reason)}</span></li>`).join("")}</ul>`;
+}
+function thesisHtml(t) {
+  if (!t) return "";
+  const v = t.valuation || {};
+  const rng = (d, a, b, c) => d ? `${a} ${money(d[a === "bear" ? "bear" : "low"])} · ${b} ${money(d[b === "base" ? "base" : "mid"])} · ${c} ${money(d[c === "bull" ? "bull" : "high"])}` : "not available";
+  return `<section class="lt" aria-label="Long-term view"><h3>Long-term view (12 months)</h3>${labelsHtml(t.labels)}
+    <p class="lt-v">${v.summary ? esc("Value range " + v.summary) : "No valuation range (see assumptions)."} ${TAG("ESTIMATE")}</p>
+    <details><summary>Range, catalysts, risks, what would invalidate it, assumptions</summary>
+      <p class="faint">Cash-flow value: ${rng(v.dcf, "bear", "base", "bull")}. Own price/sales history: ${rng(v.own_history_ps, "low", "mid", "high")}.</p>
+      <h4>Catalysts</h4><ul>${t.catalysts.map((c) => `<li>${esc(c.text)} ${TAG(c.tag)}</li>`).join("")}</ul>
+      <h4>Risks</h4><ul>${t.risks.map((c) => `<li>${esc(c.text)} ${TAG(c.tag)}</li>`).join("") || "<li class='faint'>none flagged</li>"}</ul>
+      <h4>Invalidated by</h4><ul>${t.invalidation.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>
+      <h4>Assumptions</h4><ul>${(v.assumptions || []).map((c) => `<li class="faint">${esc(c)}</li>`).join("")}</ul>
+      <p class="faint">Benchmark: ${esc(t.benchmark_note)}. ${t.forecast_id ? "Logged in the forecast ledger (250 sessions)." : "Not logged (the answer is unclear, or a recent one is still open)."} ${esc(t.label)}.</p></details></section>`;
+}
+function optionsCheckHtml(o) {
+  if (!o || !o.headline) return "";
+  const ok = o.verdict === "evaluate";
+  const st = (x) => `<li><b>${esc(x.name)}</b>: entry ${x.entry >= 0 ? "debit" : "credit"} $${Math.abs(x.entry).toFixed(2)}, max loss ${x.max_loss == null ? "—" : "$" + x.max_loss.toFixed(2)}, max profit ${x.max_profit == null ? "open-ended" : "$" + x.max_profit.toFixed(2)}, breakeven ${money(x.breakeven)}, theta ${x.theta_day.toFixed(2)}/day <span class="faint">(per share; ×100 per contract)</span></li>`;
+  return `<section class="ocheck ${ok ? "oc-ok" : "oc-no"}" aria-label="Options check"><h3>Options check: ${o.direction === "bull" ? "bullish" : "bearish"} setup</h3>
+    <p class="oc-head">${esc(o.headline)} ${TAG("INFERENCE")}</p>
+    <details><summary>The numbers (expiry ${esc(o.expiry || "")}, ${esc(o.label || "")})</summary>
+      <p class="faint">Implied volatility ${o.atm_iv ? (o.atm_iv * 100).toFixed(0) + "%" : "—"} vs ${o.realized_vol_20d ? (o.realized_vol_20d * 100).toFixed(0) + "%" : "—"} realised over 20 days. Market-priced move to expiry: ${o.expected_move_pct != null ? "±" + o.expected_move_pct + "%" : "—"}. ${esc(o.iv_rank || "")}.</p>
+      <ul>${(o.structures || []).map(st).join("")}</ul>
+      ${(o.skipped || []).length ? `<p class="faint">Not priced: ${esc(o.skipped.join("; "))}</p>` : ""}
+      <p class="faint">Delayed quotes from ${esc(o.check_date || "")}; buys at the ask, sells at the bid. No options idea is validated.</p></details></section>`;
+}
+function challengeHtml(ch) {
+  if (!ch || (!ch.top.length && !ch.cio)) return "";
+  const SEVC = { high: "arw-down", medium: "arw-two", low: "faint", info: "faint" };
+  const item = (x) => `<li><b>${esc(x.label)}:</b> ${esc(x.statement)} ${TAG(x.tag)}</li>`;
+  const KIND = { red_team: "Red Team", advocate: "Investor Advocate", bull: "Bull case", bear: "Bear case", disagreement: "Disagreement" };
+  const rest = Object.entries(ch.all || {}).filter(([k]) => k !== "cio").map(([k, xs]) => `<h4>${esc(KIND[k] || k)}</h4><ul>${xs.map((x) =>
+    `<li><span class="${SEVC[x.severity] || ""}">${esc(x.severity)}</span> ${esc(x.statement)} ${TAG(x.tag)}</li>`).join("")}</ul>`).join("");
+  return `<section class="chal" aria-label="Challenge"><h3>Challenge</h3>
+    ${ch.cio ? `<p class="chal-cio">${esc(ch.cio.statement)} ${TAG("INFERENCE")}</p>` : ""}
+    <ul class="chal-top">${ch.top.map(item).join("")}</ul>
+    <details><summary>All challenge points${(ch.open_questions || []).length ? ` and ${ch.open_questions.length} open question${ch.open_questions.length === 1 ? "" : "s"}` : ""}</summary>${rest}
+      ${(ch.open_questions || []).length ? `<h4>Open research questions</h4><ul>${ch.open_questions.map((q) => `<li>${esc(q)}</li>`).join("")}</ul>` : ""}</details>
+    <p class="faint" style="font-size:11px;margin:6px 0 0">Fixed rules over the evidence on this page (no AI writing). It can say "no action" or "hold off", but never upgrades the verdict or lifts a risk limit.</p></section>`;
+}
+function tiesHtml(x) {
+  const lv = x && x.levels, mv = x && x.moves;
+  if (!lv && !mv) return "";
+  const row = (l) => `<li><b class="num">${money(l.price)}</b> ${esc(l.label)} <span class="faint">(${l.distance_pct > 0 ? "+" : ""}${l.distance_pct}%${l.status === "tested" ? ", tested" : ""})</span></li>`;
+  return `<section class="ties" aria-label="Key levels and what it moves with"><h3>Key levels</h3>
+    ${lv ? `<div class="ties-g"><div><h4>Above</h4><ul>${lv.above.map(row).join("") || '<li class="faint">none nearby</li>'}</ul></div>
+      <div><h4>Below</h4><ul>${lv.below.map(row).join("") || '<li class="faint">none nearby</li>'}</ul></div></div>` : ""}
+    ${mv ? `<p class="ties-m">${esc(mv.text)} ${TAG(mv.tag)}</p>` : ""}
+    <p class="faint" style="font-size:11px;margin:6px 0 0">${lv ? esc(lv.note) + " " : ""}Correlation describes the past, not cause. Information only.</p></section>`;
+}
+function scenariosHtml(s) {
+  if (!s || !(s.scenarios || []).length) return "";
+  const ARW = { bull: ["arw-up", "↑", "bullish"], base: ["arw-two", "↔", "range"], bear: ["arw-down", "↓", "bearish"] };
+  return `<section class="scen" aria-label="Scenarios"><h3>Scenarios: next ${s.horizon_days} sessions</h3>
+    <p class="faint" style="font-size:12px;margin:0 0 8px">From the close on ${esc(s.asof)} (${money(s.last_close)}). Today: ${esc((s.context || []).join("; ") || "no market context available")}.</p>
+    <div class="scen-grid">${s.scenarios.slice(0, 3).map((x) => `<div class="scen-c scen-${esc(x.name)}">
+      <h4><span class="arw ${ARW[x.name][0]}" aria-label="${ARW[x.name][2]}">${ARW[x.name][1]}</span> ${esc(x.title)}</h4>
+      <p>${esc(x.what)}</p>
+      <div class="scen-l"><b>What would confirm it</b> <span class="faint">(common convention; not shown to improve results)</span><ul>${x.confirms.map((c) => `<li>${esc(c)}</li>`).join("")}</ul></div>
+      <div class="scen-l"><b>What would change our mind</b><ul>${x.change_mind.map((c) => `<li>${esc(c)}</li>`).join("")}</ul></div>
+      <p class="scen-a">${esc(x.analogue_text)} ${TAG("FACT")}</p></div>`).join("")}</div>
+    <p class="faint" style="font-size:11px;margin:8px 0 0">${esc(s.note)} Each bull and bear case is logged before the next session and scored later on Track record. Information only: never changes the scores or verdict.</p></section>`;
+}
+
 function asofHtml(c, kn) {
   const a = (kn && kn.asof) || {};
   const parts = [`prices ${esc(c.price_date || a.prices || "n/a")}`];
@@ -492,7 +710,7 @@ async function openStock(t) {
   if (!t) return;
   rememberOrder(t);
   history.replaceState(null, "", `?open=${encodeURIComponent(t)}${location.hash}`);
-  let c = findCard(t), kn = null, mentor = null;
+  let c = findCard(t), kn = null, mentor = null, scen = null, extra = {};
   if (!c) openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(t)}</span></div><div class="skeleton" style="height:220px;border-radius:10px;margin-top:12px"></div>`);
   try {
     const d = await load(`/api/stock?t=${encodeURIComponent(t)}`);
@@ -500,7 +718,7 @@ async function openStock(t) {
       openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(t)}</span></div><p class="muted" style="margin-top:12px">${esc(d.error)}</p>`);
       return;
     }
-    c = c || d.card; kn = d.keynums; mentor = d.mentor;
+    c = c || d.card; kn = d.keynums; mentor = d.mentor; scen = d.scenarios; extra = { levels: d.levels, moves: d.moves_with, challenge: d.challenge, oc: d.options_check, thesis: d.thesis };
   } catch (e) {
     if (!c) { openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(t)}</span></div><div class="err">Could not load this stock: ${esc(e.message)}</div>`); return; }
   }
@@ -510,6 +728,11 @@ async function openStock(t) {
     ${asofHtml(c, kn)}
     ${mattersHtml(c.impact)}
     ${mentorHtml(c.ticker, mentor)}
+    ${challengeHtml(extra.challenge)}
+    ${thesisHtml(extra.thesis)}
+    ${optionsCheckHtml(extra.oc)}
+    ${tiesHtml(extra)}
+    ${scenariosHtml(scen)}
     ${keyNumbersHtml(kn)}
     ${kn && kn.story ? `<section class="story" aria-label="Earnings story"><h3>Earnings story</h3><p>${esc(kn.story)} ${TAG("INFERENCE")}</p></section>` : ""}
     <div id="chart-box"></div>
@@ -614,7 +837,8 @@ async function viewOversold(main) {
       <span class="so">${esc(i.so_what)}</span></summary>
       <div class="why">
         <div><b>Oversold because:</b> ${esc(i.conditions.join("; "))}. ${TAG("FACT")}</div>
-        ${i.decomposition && i.decomposition.stock != null ? `<div><b>Last month's move:</b> ${i.decomposition.stock.toFixed(0)}% = market ${i.decomposition.market.toFixed(0)}% + peers ${i.decomposition.sector.toFixed(0)}% + its own ${i.decomposition.specific.toFixed(0)}%. ${TAG("INFERENCE")}</div>` : ""}
+        ${i.decomposition && i.decomposition.stock != null ? `<div><b>Last month's move:</b> ${i.decomposition.stock.toFixed(0)}% = market ${i.decomposition.market.toFixed(0)}% + peers ${i.decomposition.sector.toFixed(0)}% + its own ${i.decomposition.specific.toFixed(0)}%${i.decomposition.with_market_share != null ? ` (share of the drop: market ${Math.round(i.decomposition.with_market_share * 100)}%, peers ${Math.round(i.decomposition.with_peers_share * 100)}%, own ${Math.round(i.decomposition.own_share * 100)}%; parts that moved the other way count as 0)` : ""}. ${TAG("INFERENCE")}</div>` : ""}
+        <div><b>Company-specific bad news on record:</b> ${(i.bad_news || []).length ? esc(i.bad_news.join(", ")) : "none"}. ${TAG("FACT")}</div>
         ${i.headline ? `<div><b>The business:</b> ${esc(i.headline)}.</div>` : ""}
         <div><b>What would change this:</b> ${esc(i.change)}</div>
         <div><a href="#" data-open="${esc(i.ticker)}">Open the full stock view</a></div>
@@ -623,23 +847,23 @@ async function viewOversold(main) {
     <div class="head"><div><h1>Oversold</h1><p class="sub">Stocks that fell unusually far, unusually fast. That's a price condition, not a sign the stock is cheap or good.</p></div></div>
     ${(o.funds || []).length ? `<p class="os-funds">${o.funds.map(fund).join(". ")}.</p>` : ""}
     <section class="today"><h2>Worth looking into</h2>
-      <p class="sub">Oversold, with a grade of C or better, no high-impact red flag, no critical news and enough trading volume. Ranked by how the drop happened.</p>
+      <p class="sub">Oversold, with a grade of C or better, no high-impact red flag, no critical news and enough trading volume. Ranked by how many oversold signs hold. Whether a drop is an overreaction or deserved is not judged.</p>
       ${o.worth.length ? `<ol class="os-list">${o.worth.map(row).join("")}</ol>` : `<p class="faint">No oversold stock passes the quality checks today.</p>`}
       ${o.more_worth ? `<p class="faint">${o.more_worth} more pass the checks; shown are the ${o.worth.length} with the clearest case.</p>` : ""}
     </section>
-    ${(o.warnings || []).length ? `<section class="today"><h2>Your stocks falling for a reason</h2><ol class="os-list">${o.warnings.map(row).join("")}</ol></section>` : ""}
+    ${(o.warnings || []).length ? `<section class="today"><h2>Your stocks: mostly their own drop, with bad news on record</h2><ol class="os-list">${o.warnings.map(row).join("")}</ol></section>` : ""}
     <details class="more"><summary>All other oversold names (${o.others.length}) and why they were left out</summary>
       <ul class="os-others">${o.others.map((i) => `<li><b>${esc(i.ticker)}</b> <span class="faint">${Math.abs(i.dd52 || 0).toFixed(0)}% below its high, ${i.count} of 4 signs</span>: ${esc(i.fails.join("; "))}</li>`).join("") || `<li class="faint">None.</li>`}</ul></details>
     <details class="more"><summary>How "oversold" is defined</summary><div class="os-def">
       <p>A stock counts as oversold when at least ${o.min_conditions} of these four are true on its latest close:</p>
       <ul>${o.definition.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>
-      <p class="faint">"Possible overreaction" means most of the past month's drop came with the market and its peers. "Falling for a reason" means it's mostly its own drop, with worse fundamentals (guidance or estimate cuts). "Wait for it to stabilize" means it's mostly its own drop and the cause isn't clear. Scanned ${o.scanned} stocks, including tech index members we don't track yet. Updated after each research run.</p>
+      <p class="faint">Each name shows how the past month's drop splits between the market (QQQ, adjusted for how much the stock usually moves with it), its peers and the stock itself, plus any company-specific bad news on record (estimate or guidance cuts, a revenue miss). The earlier "possible overreaction / falling for a reason" verdict was retired on 2026-11-10: an audit found it mostly reflected whether QQQ had fallen, and it couldn't tell an overreaction from a deserved, sector-wide repricing. Scanned ${o.scanned} stocks, including tech index members we don't track yet. Updated after each research run.</p>
     </div></details>
     <p class="preamble">${esc(o.disclaimer || "")}</p>`;
   main.querySelectorAll("[data-open]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); openStock(a.dataset.open); }));
 }
 
-const VIEWS = { stocks: viewStocks, earnings: viewEarnings, market: viewMarket, opportunities: viewOpps, oversold: viewOversold, track: viewTrack };
+const VIEWS = { stocks: viewStocks, earnings: viewEarnings, market: viewMarket, opportunities: viewOpps, oversold: viewOversold, reports: viewReports, track: viewTrack, discovery: viewDiscovery, ops: viewOps, settings: viewSettings };
 const skel = () => `<div class="list">${'<div class="skeleton"></div>'.repeat(6)}</div>`;
 function whenPlotly(fn, tries = 0) { if (window.Plotly) fn(); else if (tries < 60) setTimeout(() => whenPlotly(fn, tries + 1), 100); else { const e = $("#treemap"); if (e) e.innerHTML = `<div class="empty">Heatmap library unavailable (offline?).</div>`; } }
 

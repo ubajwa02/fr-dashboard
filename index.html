@@ -8,11 +8,11 @@
 <script>
   try { const t = localStorage.getItem("fr-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
 </script>
-<script>window.FR_STATIC = {"asof": "2026-11-09 20:47 UTC"};</script>
+<script>window.FR_STATIC = {"asof": "2026-11-10 05:11 UTC"};</script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
-<div class="snapshot-banner" role="note">Read-only snapshot, updated 2026-11-09 20:47 UTC. Research, not advice. Scores, news and prices do not update until the next snapshot.</div>
+<div class="snapshot-banner" role="note">Read-only snapshot, updated 2026-11-10 05:11 UTC. Research, not advice. Scores, news and prices do not update until the next snapshot.</div>
 <header class="topbar">
   <div class="brand" aria-label="Fundamental Researcher">
     <span class="logo" aria-hidden="true">◆</span><span class="brand-name">Fundamental<b>Researcher</b></span>
@@ -22,7 +22,9 @@
     <a href="#/earnings" data-view="earnings">Earnings</a>
     <a href="#/market" data-view="market">Market</a>
     <a href="#/opportunities" data-view="opportunities">Opportunities</a>
+    <a href="#/discovery" data-view="discovery">Discovery</a>
     <a href="#/oversold" data-view="oversold">Oversold</a>
+    <a href="#/reports" data-view="reports">Reports</a>
     <a href="#/track" data-view="track">Track record</a>
   </nav>
   <div class="jump-wrap"><input id="jump" list="jump-list" type="search" placeholder="Find a stock  /" aria-label="Find a stock by ticker" autocomplete="off" spellcheck="false"><datalist id="jump-list"></datalist></div>
@@ -44,6 +46,7 @@
 <div class="scrim" id="scrim" hidden></div>
 <footer class="foot">
   <span id="disclaimer"></span>
+  <a href="#/ops">Research operations</a> · <a href="#/settings">Settings</a>
 </footer>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js" defer></script>
