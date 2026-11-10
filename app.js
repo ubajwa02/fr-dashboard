@@ -330,13 +330,15 @@ async function viewReports(main) {
   const d = await load("/api/reports");
   let sy = null;
   try { sy = await load("/api/synthesis"); } catch (e) { sy = null; }
-  main.innerHTML = `${sy ? `<h2>Committee Conclusions</h2><p class="sub">${esc(sy.label)}. One a weekday after the close; saved reports never change.</p>
+  const repRow = (r, label) => !r ? `<li class="rp3"><b>${esc(label)}</b><span class="faint">Not generated yet.</span></li>` :
+    `<li class="rp3"><details><summary><b>${esc(label)}</b><span class="faint">${esc(fmtDay(r.report_date || ""))}</span><span class="one">${esc((r.verdict || {}).text || r.headline || "")}</span></summary>${reportHtml(r, label)}</details></li>`;
+  main.innerHTML = pageHead("Reports", "Daily reports and every Committee Conclusion. Open one to read it; saved reports never change.") +
+    `<h2 class="h3s">Latest</h2><ul class="rp3s">${repRow(d.premarket, "Premarket Plan")}${repRow(d.postmarket, "Post-Market Review")}${repRow(d.weekly, "Weekly Outlook")}</ul>` +
+    `${sy ? `<h2 class="h3s">Committee Conclusions</h2><p class="sub">${esc(sy.label)}. One a weekday after the close; saved reports never change.</p>
     <div class="tbl-wrap"><table><thead><tr><th>Data Date</th><th>Written</th><th>Source</th><th></th></tr></thead><tbody>
     ${(sy.archive || []).map((a, i) => `<tr><td class="num">${esc(a.asof)}</td><td>${esc((a.created_at || "").slice(0, 16).replace("T", " "))} UTC</td><td>${esc(a.source)}${a.note ? `<div class="faint small">${esc(a.note)}</div>` : ""}</td>
       <td><button class="btn ghost" data-syn="${i}">Open</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No conclusions yet.</td></tr>`}</tbody></table></div><div id="syn-open"></div>` : ""}
-    <div class="head"><div><h1>Reports</h1><p class="sub">The weekly outlook sets the frame (Sundays); the premarket plan (about 8:45 ET) and the post-market review (about 4:35 ET) follow each trading day.</p></div></div>
-    <div class="reps">${reportHtml(d.premarket, "Premarket plan")}${reportHtml(d.postmarket, "Post-market review")}${reportHtml(d.weekly, "Weekly outlook")}</div>
-    <h2>Archive</h2><div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Report</th><th></th></tr></thead><tbody>
+    <h2 class="h3s">Report Archive</h2><div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Report</th><th></th></tr></thead><tbody>
     ${(d.archive || []).map((a) => `<tr><td class="num">${esc(a.report_date)}</td><td>${esc({ weekly: "Weekly outlook", premarket: "Premarket plan", postmarket: "Post-market review" }[a.kind])}</td>
       <td><button class="btn ghost" data-rep="${esc(a.report_id)}">Open</button></td></tr>`).join("") || `<tr><td colspan="3" class="empty">No reports yet.</td></tr>`}</tbody></table></div>
     <div id="rep-open"></div>`;
@@ -826,6 +828,7 @@ async function taChart(host, t, extraLevels) {
     if (P.style === "line") { ser = main.addLineSeries({ color: v("--series-1"), lineWidth: 2, priceLineVisible: false }); ser.setData(rows.map((r) => ({ time: r.time, value: r.close }))); }
     else { ser = main.addCandlestickSeries({ upColor: v("--up"), downColor: v("--down"), wickUpColor: v("--up"), wickDownColor: v("--down"), borderVisible: false, priceLineVisible: false });
       ser.setData(rows.map((r) => ({ time: r.time, open: r.open, high: r.high, low: r.low, close: r.close }))); }
+    valueBand(t, main, ser, plot, v);
     if (P.vol) { const vs = main.addHistogramSeries({ priceScaleId: "vol", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false });
       main.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
       vs.setData(rows.map((r) => ({ time: r.time, value: r.volume, color: r.close >= r.open ? v("--up-soft") : v("--down-soft") }))); }
@@ -1005,22 +1008,27 @@ async function openStock(t) {
       openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(t)}</span></div><p class="muted" style="margin-top:12px">${esc(d.error)}</p>`);
       return;
     }
-    c = c || d.card; kn = d.keynums; mentor = d.mentor; scen = d.scenarios; extra = { levels: d.levels, moves: d.moves_with, challenge: d.challenge, oc: d.options_check, thesis: d.thesis, daily: d.daily, committee: d.committee, profile: d.profile, monitor: d.monitor };
+    c = c || d.card; kn = d.keynums; mentor = d.mentor; scen = d.scenarios; extra = { levels: d.levels, moves: d.moves_with, challenge: d.challenge, oc: d.options_check, thesis: d.thesis, daily: d.daily, committee: d.committee, profile: d.profile, monitor: d.monitor, scorecard: d.scorecard };
+    if (d.scorecard && d.scorecard.range) (state.scorecards = state.scorecards || {})[t] = d.scorecard.range;
+    try { state.board = state.board || await load("/api/board"); } catch (e) { state.board = null; }
   } catch (e) {
     if (!c) { openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(t)}</span></div><div class="err">Could not load this stock: ${esc(e.message)}</div>`); return; }
   }
   const lv = c.play.levels, f = c.fundamental;
   openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(c.ticker)}</span><span class="muted">${esc(c.name)}</span></div>
     <div class="dh"><span class="px num">${money(c.price)}</span><span class="num ${dirCls(c.change_1d)}">${pct(c.change_1d)} last session</span></div>
+    ${stockHeadV3(c, boardRow(c.ticker), extra.scorecard)}
+    <div id="chart-box"></div>
+    <details class="fold v3-more"><summary>Committee Explanation And What Changed</summary>
     ${profileHtml(extra.profile, c)}
     ${committeeCallHtml(extra.committee, extra.thesis)}
     ${monitorHtml(extra.monitor)}
+    </details>
     ${asofHtml(c, kn)}
     <section class="verdict-box" aria-label="Business"><div class="biz">${gradeBadge(f)} <span class="hl">${esc(f.headline)}</span></div>
       ${c.todo ? `<p class="todo-line"><b>What to do:</b> ${esc(c.todo)}</p>` : ""}
       <p class="faint" style="font-size:12px">Default is no action: nothing here has a proven edge.</p></section>
     ${mattersHtml(c.impact)}
-    <div id="chart-box"></div>
     <div id="ta-read-slot"></div>
     ${dailyHtml(extra.daily)}
     ${fold("Pros, cons and questions (Mentor)", mentorHtml(c.ticker, mentor))}
@@ -1334,6 +1342,273 @@ function synCardHtml(c) {
         ${s.waits_for ? `<p class="small"><b>${esc(s.waits_for)}</b></p>` : ""}<p class="small">${esc(s.why || "")}${s.differs && s.reason ? ` <b>Why it differs:</b> ${esc(s.reason)}` : ""}</p></div>`
     : `<div class="syn-v"><span class="faint small">Swing</span> <span class="faint small">${esc(s.why_vote || "")} The rule vote below stands.</span></div>`;
   return `<div class="syn-card"><div class="syn-two">${lt}${sw}</div><p class="faint small">${esc(s.label)}. Risk vetoes and the earnings cap apply to the swing call only.</p></div>`;
+}
+
+/* ======================================================================== v3: Verdict Board (visual first) */
+const VB = { "Buy now": "good", "Buy below": "good-soft", "Too expensive": "bad", "Not judged": "neutral", "Not recorded": "neutral",
+  Enter: "good", Wait: "warn", Avoid: "bad", "No view": "neutral", Hold: "warn", Reduce: "bad", Buy: "good", Accumulate: "good-soft", "No Call": "neutral" };
+const vBadge = (label, key) => `<span class="vb vb-${VB[key || label] || "neutral"}">${esc(label)}</span>`;
+const ltLabel = (lt) => (!lt ? "—" : lt.verdict === "Buy below" && lt.level != null ? `Buy below ${money2(lt.level)}` : lt.verdict);
+const ltBadge = (lt) => vBadge(ltLabel(lt), (lt || {}).verdict);
+const daysTo = (iso) => (iso ? Math.round((new Date(iso + "T12:00:00") - new Date(new Date().toDateString() + " 12:00")) / 864e5) : null);
+function earnChip(iso) {
+  if (!iso) return `<span class="faint">—</span>`;
+  const d = daysTo(iso);
+  return `<span class="chip-e${d != null && d <= 21 ? " soon" : ""}" title="Next earnings ${esc(iso)}">${esc(fmtDay(iso))}${d != null && d >= 0 && d <= 21 ? ` · ${d}d` : ""}</span>`;
+}
+/* Distance to the Buy-below level (the value range's middle), as a bar: left of centre = below it (green), right = above. */
+function distBar(r) {
+  const v = r.dist_to_buy_pct, lt = r.longterm || {};
+  if (v == null || !["Buy now", "Buy below", "Too expensive"].includes(lt.verdict)) return `<span class="faint">—</span>`;
+  const w = Math.min(50, Math.abs(v) / 2);                 // ±100% spans the half-width
+  return `<div class="dist" title="${v <= 0 ? `${Math.abs(v)}% below` : `${v}% above`} the Buy-below level ${money2(lt.mid)}">
+    <div class="dist-track"><span class="dist-mid"></span><span class="dist-fill ${v <= 0 ? "below" : "above"}" style="${v <= 0 ? `right:50%` : `left:50%`};width:${w}%"></span></div>
+    <span class="num dist-v">${v > 0 ? "+" : ""}${v.toFixed(0)}%</span></div>`;
+}
+/* The signature element: the value range as a ribbon, low to high, with the Buy-below tick and the price dot. */
+function valueRibbon(range, price) {
+  if (!range || price == null) return "";
+  const lo = Math.min(range.low, price), hi = Math.max(range.high, price), span = hi - lo || 1;
+  const x = (v) => ((v - lo) / span * 100).toFixed(2);
+  return `<figure class="ribbon" aria-label="Value range ${money2(range.low)} to ${money2(range.high)}, buy below ${money2(range.mid)}, price ${money2(price)}">
+    <div class="rb-track"><span class="rb-band" style="left:${x(range.low)}%;width:${(x(range.high) - x(range.low)).toFixed(2)}%"></span>
+      <span class="rb-buy" style="left:${x(range.low)}%;width:${(x(range.mid) - x(range.low)).toFixed(2)}%"></span>
+      <span class="rb-mid" style="left:${x(range.mid)}%"></span><span class="rb-px" style="left:${x(price)}%"></span></div>
+    <figcaption class="rb-labels"><span style="left:${x(range.low)}%">${money2(range.low)}</span><span class="rb-l-mid" style="left:${x(range.mid)}%">Buy below ${money2(range.mid)}</span>
+      <span style="left:${x(range.high)}%">${money2(range.high)}</span></figcaption>
+    <p class="rb-px-l">Price ${money2(price)}: ${price <= range.mid ? `${((1 - price / range.mid) * 100).toFixed(0)}% below the Buy-below level` : `${((price / range.mid - 1) * 100).toFixed(0)}% above it`}</p></figure>`;
+}
+function vixGauge(v) {
+  if (!v) return "";
+  const p = Math.max(0, Math.min(100, (v.value / 40) * 100));
+  return `<div class="gauge-v" title="VIX bands: under 15 calm, 15–20 normal, 20–30 elevated, 30+ high">
+    <div class="gv-track"><span style="width:37.5%" class="gv-calm"></span><span style="width:12.5%" class="gv-norm"></span><span style="width:25%" class="gv-elev"></span><span style="width:25%" class="gv-high"></span><i style="left:${p}%"></i></div></div>`;
+}
+function boardHtml(rows) {
+  return `<div class="tbl-wrap board-tbl"><table class="sortable vtable"><thead><tr><th>Stock</th><th class="num">Price</th><th class="num">Day</th><th>1 Month</th><th>Long-Term</th><th>To Buy-Below</th><th>Swing</th><th>Trigger</th><th>Earnings</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr data-open="${esc(r.ticker)}" tabindex="0"><td><b class="tk">${esc(r.ticker)}</b>${r.veto ? ` <span class="vb vb-bad" title="${esc(r.veto.join("; "))}">Veto</span>` : ""}</td>
+      <td class="num">${money2(r.price)}</td><td class="num ${dirCls(r.day_pct)}" data-v="${r.day_pct ?? -999}">${pct(r.day_pct)}</td><td>${spark(r.spark, 96, 26)}</td>
+      <td data-v="${esc(ltLabel(r.longterm))}">${ltBadge(r.longterm)}</td><td data-v="${r.dist_to_buy_pct ?? 999}">${distBar(r)}</td>
+      <td data-v="${esc(r.swing)}">${vBadge(r.swing)}</td><td class="trig">${esc((r.trigger || "").replace(/^Wait for /, "").replace(/\.$/, "")) || "—"}</td><td data-v="${esc(r.earnings || "9999")}">${earnChip(r.earnings)}</td></tr>`).join("")}
+    </tbody></table></div>
+    <div class="board-cards">${rows.map((r) => `<button class="bcard" data-open="${esc(r.ticker)}"><div class="bc-top"><b class="tk">${esc(r.ticker)}</b><span class="num">${money2(r.price)}</span><span class="num ${dirCls(r.day_pct)}">${pct(r.day_pct)}</span>${spark(r.spark, 84, 24)}</div>
+      <div class="bc-badges"><div><span class="bc-l">Long-term</span>${ltBadge(r.longterm)}</div><div><span class="bc-l">Swing</span>${vBadge(r.swing)}</div></div>
+      ${r.trigger || r.earnings ? `<div class="bc-trig">${r.trigger ? esc(r.trigger.replace(/\.$/, "")) : ""}${r.earnings ? ` ${earnChip(r.earnings)}` : ""}</div>` : ""}</button>`).join("")}</div>`;
+}
+function wireOpen(root) {
+  root.querySelectorAll("[data-open]").forEach((x) => {
+    if (x.__wired) return; x.__wired = true;
+    const go = (e) => { e.preventDefault(); openStock(x.dataset.open); };
+    x.addEventListener("click", go);
+    if (x.tagName === "TR") x.addEventListener("keydown", (e) => { if (e.key === "Enter") go(e); });
+  });
+}
+/* A fold that renders an older, detailed page inside it only when opened (detail stays out of the way). */
+function lazyFold(title, render, id) {
+  return `<details class="fold v3-fold" data-lazy="${esc(id)}"><summary>${esc(title)}</summary><div class="lazy-body"></div></details>`;
+}
+function wireLazy(root, renders) {
+  root.querySelectorAll("details[data-lazy]").forEach((d) => d.addEventListener("toggle", async () => {
+    if (!d.open || d.__done) return; d.__done = true;
+    const body = d.querySelector(".lazy-body"); body.innerHTML = skel();
+    try { await renders[d.dataset.lazy](body); } catch (e) { body.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  }));
+}
+const hashParam = (k) => new URLSearchParams(location.hash.split("?")[1] || "").get(k);
+const segCtl = (view, key, opts, cur) => `<nav class="seg" aria-label="Views">${opts.map(([v, n]) => `<a href="#/${view}?${key}=${v}" class="${v === cur ? "on" : ""}" aria-current="${v === cur ? "page" : "false"}">${esc(n)}</a>`).join("")}</nav>`;
+const pageHead = (title, sub) => `<div class="p3-head"><h1>${esc(title)}</h1>${sub ? `<p class="faint">${esc(sub)}</p>` : ""}</div>`;
+
+async function viewHome(main) {
+  main.innerHTML = skel();
+  const d = await load("/api/board");
+  const M = d.market, rows = d.rows || [];
+  const trendBadge = (t) => vBadge(t ? t[0].toUpperCase() + t.slice(1) : "—", t === "uptrend" ? "Enter" : t === "downtrend" ? "Avoid" : "Wait");
+  main.innerHTML = `
+  <section class="mk-strip" aria-label="Market">
+    ${M.indices.map((i) => `<div class="mk-tile"><div class="mk-h"><b>${esc(i.ticker)}</b>${trendBadge(i.trend)}</div>
+      <div class="mk-v"><span class="num">${money2(i.close)}</span><span class="num ${dirCls(i.chg)}">${pct(i.chg)}</span></div>${spark(i.spark, 180, 36)}</div>`).join("")}
+    ${M.vix ? `<div class="mk-tile"><div class="mk-h"><b>Fear (VIX)</b>${vBadge(M.vix.label[0].toUpperCase() + M.vix.label.slice(1), M.vix.label === "calm" || M.vix.label === "normal" ? "Enter" : M.vix.label === "high" ? "Avoid" : "Wait")}</div>
+      <div class="mk-v"><span class="num">${M.vix.value.toFixed(2)}</span><span class="faint">${M.vix.pct != null ? `${M.vix.pct}th pct of year` : ""}</span></div>${vixGauge(M.vix)}</div>` : ""}
+    ${M.breadth != null ? `<div class="mk-tile"><div class="mk-h"><b>Breadth</b>${vBadge(M.breadth >= 60 ? "Broad" : M.breadth >= 40 ? "Mixed" : "Narrow", M.breadth >= 60 ? "Enter" : M.breadth >= 40 ? "Wait" : "Avoid")}</div>
+      <div class="mk-v"><span class="num">${M.breadth}%</span><span class="faint">above 50-day</span></div><div class="br-track"><span style="width:${M.breadth}%"></span></div></div>` : ""}
+  </section>
+  <section class="verdict-line" aria-label="Evening verdict">
+    <p class="vl-text">${esc(d.headline)}</p>
+    <div class="vl-keys">${(d.key_calls || []).map((k) => `<a href="#" data-open="${esc(k.ticker)}" class="vl-key"><b>${esc(k.ticker)}</b>${vBadge(k.label, k.label.startsWith("Buy below") ? "Buy below" : k.label)}</a>`).join("")}</div>
+    ${d.report ? `<details class="vl-more"><summary>About this verdict</summary><p class="faint">${esc(d.report.label)}. Written ${esc((d.report.created_at || "").slice(0, 16).replace("T", " "))} UTC. Full report on <a href="#/briefing">Briefing</a>.</p></details>` : ""}
+  </section>
+  <section class="board" aria-label="Verdict Board">
+    <div class="board-h"><h2>Verdict Board</h2><span class="faint">Long-term: is it a good business at a good price? Swing: the next few weeks. Data from the ${esc(fmtDay(d.asof))} close.</span></div>
+    ${boardHtml(rows)}
+  </section>
+  <div class="home-two">
+    <section class="watch" aria-label="What to watch"><h2>What To Watch</h2><span class="faint">${esc((d.watch || {}).for || "")}</span>
+      <ol class="tl2">${((d.watch || {}).items || []).map((i) => `<li class="tl2-${esc(i.kind)}"><span class="tl2-when">${esc(i.when)}</span><b>${esc(i.what)}</b></li>`).join("") || `<li class="faint">Nothing scheduled.</li>`}</ol></section>
+    <section class="heads" aria-label="Headlines"><h2>Headlines</h2>
+      <ul class="hl2">${(d.headlines || []).map((h) => `<li><span class="imp imp-${esc(h.impact)}" title="Importance ${h.importance} of 100">${h.importance}</span><span class="hl2-t">${esc(h.headline)}</span><span class="faint hl2-m">${esc(h.tickers.join(", "))}</span></li>`).join("")}</ul></section>
+  </div>
+  ${lazyFold("Full Briefing: The Committee Conclusion, Decisions, Risks And Notes", null, "briefing")}
+  ${disclosure("Research, not advice. Long-term verdicts follow a fixed rule over the value range and business quality; swing calls are AI-written judgment. Nothing is traded.")}`;
+  wireOpen(main); enableSort(main); wireLazy(main, { briefing: viewCommand });
+}
+
+/* ------------------------------------------------------------------ Stocks: Focus / All covered / By category */
+async function viewStocks3(main) {
+  const v = hashParam("v") || "focus";
+  main.innerHTML = skel();
+  const head = pageHead("Stocks", "The 19 focus names, every covered stock, and where each one sits in its research lifecycle.") +
+    segCtl("stocks", "v", [["focus", "Focus"], ["covered", "All Covered"], ["category", "By Category"]], v);
+  if (v === "focus") {
+    const d = await load("/api/board");
+    main.innerHTML = head + boardHtml(d.rows || []) + lazyFold("Recommendation Cards: Levels, Conviction And Agent Views", null, "recs");
+    wireOpen(main); enableSort(main); wireLazy(main, { recs: viewRecs }); return;
+  }
+  const c = await load("/api/coverage");
+  const live = c.stocks.filter((x) => !x.removed_at);
+  const CAT = { "Core Coverage": "Wait", "Watchlist": "No view", "Active Opportunities": "Buy below", "Approaching Entry": "Buy below", "Active Recommendations": "Enter",
+    "High-Risk Monitoring": "Avoid", "Thesis Deteriorating": "Avoid", "Archived Opportunities": "No view" };
+  const catBadge = (k) => vBadge(k, CAT[k]);
+  const a = (x) => x.assessment || {};
+  if (v === "covered") {
+    main.innerHTML = head + `<div class="tbl-wrap"><table class="sortable vtable"><thead><tr><th>Stock</th><th>Category</th><th>Stage</th><th>Call</th><th class="num">Alerts</th><th>Analysts</th><th>Priority</th><th>Sector</th></tr></thead><tbody>
+      ${live.sort((p, q) => c.categories.indexOf(q.category) - c.categories.indexOf(p.category) || p.ticker.localeCompare(q.ticker)).map((x) => `<tr data-open="${esc(x.ticker)}" tabindex="0">
+        <td><b class="tk">${esc(x.ticker)}</b></td><td data-v="${c.categories.indexOf(x.category)}">${catBadge(x.category)}</td><td>${esc(x.lifecycle)}</td>
+        <td>${a(x).insufficient ? `<span class="faint">No data yet</span>` : vBadge(a(x).call || "—", a(x).call)}</td><td class="num">${x.open_alerts || "—"}</td><td>${esc(x.analysts.join(", ") || "—")}</td>
+        <td>${esc(x.priority)}</td><td class="faint">${esc(x.sector || "—")}</td></tr>`).join("")}</tbody></table></div>
+      <div class="board-cards">${live.map((x) => `<button class="bcard" data-open="${esc(x.ticker)}"><div class="bc-top"><b class="tk">${esc(x.ticker)}</b><span></span><span class="faint">${esc(x.priority)}</span></div>
+        <div class="bc-badges"><div><span class="bc-l">Category</span>${catBadge(x.category)}</div><div><span class="bc-l">Stage</span><span class="vb vb-neutral">${esc(x.lifecycle)}</span></div></div></button>`).join("")}</div>
+      ${lazyFold("Manage Coverage: Alerts, Assignments, History And Controls", null, "coverage")}`;
+    wireOpen(main); enableSort(main); wireLazy(main, { coverage: viewCoverage }); return;
+  }
+  main.innerHTML = head + `<div class="cats">${c.categories.filter((k) => live.some((x) => x.category === k)).map((k) => {
+      const xs = live.filter((x) => x.category === k);
+      return `<section class="cat"><div class="cat-h">${catBadge(k)}<span class="num faint">${xs.length}</span></div>
+        <div class="cat-list">${xs.map((x) => `<a href="#" data-open="${esc(x.ticker)}" class="cat-t" title="${esc(x.lifecycle)}"><b>${esc(x.ticker)}</b><span class="faint">${esc(x.lifecycle)}</span></a>`).join("")}</div></section>`; }).join("")}</div>`;
+  wireOpen(main);
+}
+
+/* ------------------------------------------------------------------ Ideas: one ranked list, a source chip on each */
+async function viewIdeas(main) {
+  main.innerHTML = skel();
+  const [k, o, os, dc] = await Promise.all([load("/api/committee"), load("/api/opportunities").catch(() => ({})), load("/api/oversold").catch(() => ({})), load("/api/discovery").catch(() => ({}))]);
+  const ideas = [];
+  ((o.pipeline || {}).opportunities || []).forEach((p) => ideas.push({ t: p.subject, src: "Setup", rank: 40 + p.state, what: `${p.kind.includes("bull") ? "Breakout" : "Breakdown"} setup, ${p.state_name}`,
+    wait: p.blocker || "", by: p.window_end, badge: p.kind.includes("bull") ? "Enter" : "Avoid", badgeText: p.kind.includes("bull") ? "Bullish" : "Bearish" }));
+  ((k.briefing || {}).emerging || []).forEach((e) => ideas.push({ t: e.what.split(" ")[0], src: "Committee", rank: 50, what: e.what, wait: e.waiting_for, by: null, badge: "Wait", badgeText: "Emerging" }));
+  (os.worth || []).forEach((x) => ideas.push({ t: x.ticker, src: "Oversold", rank: 20 + x.count * 5, what: `${x.count} oversold signs, ${x.dd52}% from its 52-week high`, wait: (x.conditions || [])[0] || "",
+    by: null, badge: x.verdict === "buy" ? "Enter" : "Wait", badgeText: x.verdict_label || "Not judged" }));
+  (dc.top || []).forEach((x) => ideas.push({ t: x.subject, src: "Discovery", rank: 10 + (((x.labels || {}).attractive_investment || {}).answer === "yes" ? 30 : 0),
+    what: `Grade ${(x.quality || {}).grade || "?"}; value ${((x.valuation || {}).summary || "").split(";")[0]}`, wait: ((x.labels || {}).attractive_investment || {}).reason || "", by: null,
+    badge: ((x.labels || {}).attractive_investment || {}).answer === "yes" ? "Buy below" : "No view", badgeText: ((x.labels || {}).attractive_investment || {}).answer === "yes" ? "Attractive" : "Unclear" }));
+  ideas.sort((a, b) => b.rank - a.rank);
+  const srcCls = { Setup: "src-setup", Committee: "src-cmte", Oversold: "src-os", Discovery: "src-disc" };
+  main.innerHTML = pageHead("Ideas", "Everything that might become a call, from four sources, ranked. None has a proven edge yet.") +
+    `<div class="tbl-wrap board-tbl"><table class="sortable vtable"><thead><tr><th>Stock</th><th>Source</th><th>Status</th><th>Idea</th><th>Waiting For</th><th>Decide By</th></tr></thead><tbody>
+    ${ideas.map((i) => `<tr data-open="${esc(i.t)}" tabindex="0"><td><b class="tk">${esc(i.t)}</b></td><td><span class="src ${srcCls[i.src]}">${esc(i.src)}</span></td><td>${vBadge(i.badgeText, i.badge)}</td>
+      <td class="one">${esc(i.what)}</td><td class="one faint">${esc(i.wait || "—")}</td><td>${i.by ? esc(fmtDay(i.by)) : "—"}</td></tr>`).join("") || `<tr><td colspan="6" class="faint">No ideas today.</td></tr>`}</tbody></table></div>
+    <div class="board-cards">${ideas.map((i) => `<button class="bcard" data-open="${esc(i.t)}"><div class="bc-top"><b class="tk">${esc(i.t)}</b><span></span><span class="src ${srcCls[i.src]}">${esc(i.src)}</span></div>
+      <div class="bc-badges"><div>${vBadge(i.badgeText, i.badge)}</div></div><div class="bc-trig">${esc(i.what)}</div></button>`).join("")}</div>
+    ${lazyFold("Setup Pipeline Detail", null, "pipe")}${lazyFold("Oversold Screen Detail", null, "os")}${lazyFold("Discovery Detail", null, "disc")}`;
+  wireOpen(main); enableSort(main); wireLazy(main, { pipe: viewOpps, os: viewOversold, disc: viewDiscovery });
+}
+
+/* ------------------------------------------------------------------ Market: the market, with Earnings as a sub-tab */
+async function viewMarket3(main) {
+  const tab = hashParam("tab") || "market";
+  main.innerHTML = skel();
+  const head = pageHead("Market", null) + segCtl("market", "tab", [["market", "Market"], ["earnings", "Earnings"]], tab);
+  if (tab === "earnings") {
+    const e = await load("/api/earnings");
+    const rows = (e.this_week || []).concat(e.next_week || []);
+    const vmap = { "EVENT RISK": "Wait", BUY: "Enter", AVOID: "Avoid" };
+    main.innerHTML = head + `<div class="tbl-wrap board-tbl"><table class="sortable vtable"><thead><tr><th>Date</th><th>Stock</th><th>When</th><th>Verdict</th><th class="num">Avg Move</th><th>Expectation</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr data-open="${esc(r.ticker)}" tabindex="0"><td data-v="${esc(r.date)}">${earnChip(r.date)}</td><td><b class="tk">${esc(r.ticker)}</b></td><td>${esc(r.timing || "—")}</td>
+        <td>${vBadge((r.verdict || "—").toLowerCase().replace(/(^|\s)\w/g, (c) => c.toUpperCase()), vmap[r.verdict])}</td><td class="num">${r.avg_move != null ? "±" + r.avg_move + "%" : "—"}</td><td class="one faint">${esc(r.expect || "")}</td></tr>`).join("") || `<tr><td colspan="6" class="faint">No reports in the next two weeks.</td></tr>`}</tbody></table></div>
+      <div class="board-cards">${rows.map((r) => `<button class="bcard" data-open="${esc(r.ticker)}"><div class="bc-top"><b class="tk">${esc(r.ticker)}</b><span></span>${earnChip(r.date)}</div><div class="bc-trig">${esc(r.timing || "")}${r.avg_move != null ? ` · past moves ±${r.avg_move}%` : ""}</div></button>`).join("")}</div>
+      ${lazyFold("Earnings Intelligence: Before And After Each Report", null, "earnc")}${lazyFold("Full Earnings Calendar", null, "earn")}`;
+    wireOpen(main); enableSort(main); wireLazy(main, { earnc: viewEarnC, earn: viewEarnings }); return;
+  }
+  const [d, ov] = await Promise.all([load("/api/board"), load("/api/overview")]);
+  const M = d.market, sec = ov.sectors || [], mx = Math.max(1, ...sec.map((x) => Math.abs(x.rel20)));
+  main.innerHTML = head + `<p class="vl-text p3-verdict">${esc(ov.verdict.text)}</p>
+    ${stripHtml(d)}
+    <div class="m3-two">
+      <section><h2 class="h3s">Sectors vs SPY, 20 Days</h2><div class="secbars">${sec.map((x) => `<div class="sb"><span class="sb-n">${esc(x.sector)}</span>
+        <div class="sb-track"><span class="sb-mid"></span><span class="sb-fill ${x.rel20 >= 0 ? "pos" : "neg"}" style="${x.rel20 >= 0 ? "left:50%" : "right:50%"};width:${(Math.abs(x.rel20) / mx * 50).toFixed(1)}%"></span></div>
+        <span class="num sb-v">${x.rel20 > 0 ? "+" : ""}${x.rel20.toFixed(1)}</span></div>`).join("")}</div></section>
+      <section><h2 class="h3s">Levels That Matter</h2><ul class="lv3">${(ov.gates || []).map((g) => `<li><b>${esc(g.ticker)}</b><span>${esc(g.name)}</span><span class="num">${money2(g.level)}</span>
+        <span class="num faint">${g.gap_pct > 0 ? "+" : ""}${g.gap_pct}%</span></li>`).join("")}</ul>
+        <h2 class="h3s">Coming Up</h2><ol class="tl2">${(ov.next || []).map((e) => `<li class="tl2-${esc(e.kind)}"><span class="tl2-when">${esc(fmtDay(e.date))}${e.time ? `, ${esc(e.time)}` : ""}</span><b>${esc(e.what)}</b></li>`).join("")}</ol></section>
+    </div>
+    ${lazyFold("Market Intelligence: The Full Read", null, "ov")}${lazyFold("Market Detail: Heatmap, Rates And Sector Table", null, "md")}`;
+  wireOpen(main); wireLazy(main, { ov: viewOverview, md: viewMarket });
+}
+function stripHtml(d) {
+  const M = d.market;
+  const trendBadge = (t) => vBadge(t ? t[0].toUpperCase() + t.slice(1) : "—", t === "uptrend" ? "Enter" : t === "downtrend" ? "Avoid" : "Wait");
+  return `<section class="mk-strip" aria-label="Market">
+    ${M.indices.map((i) => `<div class="mk-tile"><div class="mk-h"><b>${esc(i.ticker)}</b>${trendBadge(i.trend)}</div>
+      <div class="mk-v"><span class="num">${money2(i.close)}</span><span class="num ${dirCls(i.chg)}">${pct(i.chg)}</span></div>${spark(i.spark, 180, 36)}</div>`).join("")}
+    ${M.vix ? `<div class="mk-tile"><div class="mk-h"><b>Fear (VIX)</b>${vBadge(M.vix.label[0].toUpperCase() + M.vix.label.slice(1), M.vix.label === "calm" || M.vix.label === "normal" ? "Enter" : M.vix.label === "high" ? "Avoid" : "Wait")}</div>
+      <div class="mk-v"><span class="num">${M.vix.value.toFixed(2)}</span><span class="faint">${M.vix.pct != null ? `${M.vix.pct}th pct of year` : ""}</span></div>${vixGauge(M.vix)}</div>` : ""}
+    ${M.breadth != null ? `<div class="mk-tile"><div class="mk-h"><b>Breadth</b>${vBadge(M.breadth >= 60 ? "Broad" : M.breadth >= 40 ? "Mixed" : "Narrow", M.breadth >= 60 ? "Enter" : M.breadth >= 40 ? "Wait" : "Avoid")}</div>
+      <div class="mk-v"><span class="num">${M.breadth}%</span><span class="faint">above 50-day</span></div><div class="br-track"><span style="width:${M.breadth}%"></span></div></div>` : ""}
+  </section>`;
+}
+
+/* ------------------------------------------------------------------ Record: how the calls did */
+async function viewRecord(main) {
+  main.innerHTML = skel();
+  const [sy, k] = await Promise.all([load("/api/synthesis").catch(() => null), load("/api/committee")]);
+  const C = (sy || {}).comparison || { rows: [] }, log = k.log || [];
+  main.innerHTML = pageHead("Record", "How each source's calls have done against the benchmark. Calls are written before their window and never edited.") +
+    `<div class="rec3">${C.rows.map((r) => `<div class="sct ${r.matured ? (r.hit_rate_pct >= 50 ? "s-good" : "s-bad") : "s-none"}"><span>${esc(r.source)}</span><b class="num">${r.hit_rate_pct != null ? r.hit_rate_pct + "%" : "—"}</b>
+      <small class="faint">${r.calls} calls, ${r.matured} matured${r.avg_excess_in_call_direction_pct != null ? `, ${r.avg_excess_in_call_direction_pct > 0 ? "+" : ""}${r.avg_excess_in_call_direction_pct} pts` : ""}</small></div>`).join("")}</div>
+    <p class="faint one">Hit rate vs the benchmark once a call matures. Nothing has a proven edge yet; a handful of calls proves nothing.</p>
+    <h2 class="h3s">Committee Calls</h2>
+    <div class="tbl-wrap"><table class="sortable vtable"><thead><tr><th>Stock</th><th>Call</th><th>Written</th><th>From</th><th class="num">Days</th><th>Status</th><th class="num">Vs Benchmark</th></tr></thead><tbody>
+      ${log.map((r) => `<tr data-open="${esc(r.subject)}" tabindex="0"><td><b class="tk">${esc(r.subject)}</b></td><td>${vBadge(r.direction === "outperform" ? "Beat" : "Lag", r.direction === "outperform" ? "Enter" : "Avoid")} <span class="faint">vs ${esc(r.benchmark)}</span></td>
+        <td>${esc(fmtDay((r.created_at || "").slice(0, 10)))}</td><td>${esc(fmtDay(r.window_start))}</td><td class="num">${r.horizon_days}</td><td>${vBadge(r.status || "pending", r.status === "scored" ? (r.hit ? "Enter" : "Avoid") : "No view")}</td>
+        <td class="num">${r.excess != null ? (r.excess > 0 ? "+" : "") + r.excess.toFixed(2) + " pts" : "—"}</td></tr>`).join("") || `<tr><td colspan="7" class="faint">No calls yet.</td></tr>`}</tbody></table></div>
+    ${lazyFold("Full Track Record: Synthesis, Backtests And Forecast Scoring", null, "track")}${lazyFold("Decision Log Detail", null, "log")}`;
+  wireOpen(main); enableSort(main); wireLazy(main, { track: viewTrack, log: viewLog });
+}
+if (STATIC) document.querySelectorAll(".local-only").forEach((e) => e.remove());     // Mac-only links never on the public page
+const REDIRECT = { briefing: "command", recs: "stocks?v=focus", coverage: "stocks?v=covered", book: "stocks", opps: "ideas", opportunities: "ideas", oversold: "ideas",
+  discovery: "ideas", overview: "market", earnings: "market?tab=earnings", earnings2: "market?tab=earnings", log: "record", track: "record" };
+/* Value range on the price chart: lines at its low, Buy-below level (middle) and high, with the lower half shaded so
+   "buy below $X" is visible against the candles. Redrawn when the chart scrolls or resizes. */
+function valueBand(t, chart, series, plot, v) {
+  const r = boardRow(t), rg = (state.scorecards || {})[t];
+  const range = rg || (r && r.longterm && r.longterm.mid ? { low: r.longterm.low, mid: r.longterm.mid, high: r.longterm.high } : null);
+  if (!range || range.low == null) return;
+  series.createPriceLine({ price: range.mid, color: v("--good"), lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: "Buy below" });
+  [["low", "Value low"], ["high", "Value high"]].forEach(([k, n]) => series.createPriceLine({ price: range[k], color: v("--good-line"), lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: n }));
+  let band = plot.querySelector(".vband");
+  if (!band) { band = document.createElement("div"); band.className = "vband"; band.setAttribute("aria-hidden", "true"); plot.appendChild(band); }
+  const draw = () => {
+    const y1 = series.priceToCoordinate(range.mid), y2 = series.priceToCoordinate(range.low);
+    if (y1 == null || y2 == null) { band.style.display = "none"; return; }
+    const top = Math.max(0, Math.min(y1, y2)), bot = Math.min(plot.clientHeight, Math.max(y1, y2));
+    band.style.display = bot > top ? "block" : "none"; band.style.top = top + "px"; band.style.height = Math.max(0, bot - top) + "px";
+  };
+  chart.timeScale().subscribeVisibleLogicalRangeChange(() => requestAnimationFrame(draw));
+  setTimeout(draw, 60); window.addEventListener("resize", () => requestAnimationFrame(draw));
+}
+/* Stock page header (v3): price, both verdicts, the trigger, the value ribbon, a scorecard and the committee as chips. */
+const boardRow = (t) => ((state.board || {}).rows || []).find((r) => r.ticker === t) || null;
+function stockHeadV3(c, row, sc) {
+  if (!row && !sc) return "";
+  const st = { good: "s-good", mixed: "s-mixed", bad: "s-bad", none: "s-none" };
+  const glyph = (a) => (a.veto ? "⊘" : a.stance > 0 ? "▲" : a.stance < 0 ? "▼" : "●");
+  return `<section class="sh3" aria-label="Verdicts">
+    ${row ? `<div class="sh3-badges"><div><span class="bc-l">Long-term</span>${ltBadge(row.longterm)}</div><div><span class="bc-l">Swing</span>${vBadge(row.swing)}</div>
+      ${row.trigger ? `<div class="sh3-trig"><span class="bc-l">Trigger</span><b>${esc(row.trigger.replace(/^Wait for /, "").replace(/\.$/, ""))}</b></div>` : ""}
+      ${row.earnings ? `<div><span class="bc-l">Earnings</span>${earnChip(row.earnings)}</div>` : ""}</div>` : ""}
+    ${sc && sc.range ? valueRibbon(sc.range, c.price) : ""}
+    ${sc ? `<div class="scg">${sc.tiles.map((t) => `<div class="sct ${st[t.state]}" title="${esc(t.note)}"><span>${esc(t.label)}</span><b class="num">${esc(t.value)}</b></div>`).join("")}</div>
+      <div class="agc" aria-label="Committee">${sc.agents.map((a) => `<span class="ag-chip ${a.veto ? "s-bad" : a.stance > 0 ? "s-good" : a.stance < 0 ? "s-bad" : "s-none"}" title="${esc(a.reason)}"><i aria-hidden="true">${glyph(a)}</i>${esc(a.agent)}${a.call ? `: ${esc(a.call)}` : ""}</span>`).join("")}</div>` : ""}
+  </section>`;
 }
 async function viewCommand(main) {
   main.innerHTML = skel();
@@ -1755,14 +2030,40 @@ async function viewCoverage(main) {
   gf.querySelectorAll("[data-gm]").forEach((b) => b.addEventListener("click", () => post({ action: "group-member", group_id: gf.g.value, ticker: gf.t.value, on: b.dataset.gm === "1" }, "Group updated.")));
 }
 
-const VIEWS = { coverage: viewCoverage, command: viewCommand, recs: viewRecs, opps: viewOppsC, earnings2: viewEarnC, book: viewBook, log: viewLog, overview: viewOverview, stocks: viewStocks, earnings: viewEarnings, market: viewMarket, opportunities: viewOpps, oversold: viewOversold, reports: viewReports, track: viewTrack, discovery: viewDiscovery, ops: viewOps, settings: viewSettings };
+/* Phones: the bottom tab bar's "More" page lists every view (the top tab row is hidden on narrow screens). */
+async function viewMore(main) {
+  const links = [...document.querySelectorAll(".tabs a[data-view]")].map((a) => [a.dataset.view, a.textContent.trim()]).concat(STATIC ? [] : [["ops", "Research Operations"]]);
+  main.innerHTML = `<div class="head"><div><h1>All Pages</h1><p class="sub">Every view in the dashboard.</p></div></div>
+    <ul class="more-list">${links.map(([v, n]) => `<li><a href="#/${esc(v)}">${esc(n)}</a></li>`).join("")}
+    ${STATIC ? "" : `<li><a href="#/settings">Settings</a></li>`}</ul>`;
+}
+
+/* Touch: SVG marks that explain themselves with a hover <title> also answer a tap, in a small readout. */
+document.addEventListener("click", (e) => {
+  const g = e.target.closest && e.target.closest("svg g");
+  const t = g && g.querySelector(":scope > title");
+  let tip = document.getElementById("tap-tip");
+  if (!t) { if (tip) tip.hidden = true; return; }
+  if (!tip) { tip = document.createElement("div"); tip.id = "tap-tip"; tip.setAttribute("role", "status"); document.body.appendChild(tip); }
+  tip.textContent = t.textContent; tip.hidden = false;
+  const x = Math.min(window.innerWidth - 16, Math.max(16, e.clientX)), y = Math.max(16, e.clientY - 12);
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+});
+
+const VIEWS = { more: viewMore, command: viewHome, stocks: viewStocks3, ideas: viewIdeas, market: viewMarket3, reports: viewReports, record: viewRecord, ops: viewOps, settings: viewSettings };
 const skel = () => `<div class="list">${'<div class="skeleton"></div>'.repeat(6)}</div>`;
 function whenPlotly(fn, tries = 0) { if (window.Plotly) fn(); else if (tries < 60) setTimeout(() => whenPlotly(fn, tries + 1), 100); else { const e = $("#treemap"); if (e) e.innerHTML = `<div class="empty">Heatmap library unavailable (offline?).</div>`; } }
 
 async function route() {
-  const v = (location.hash.replace("#/", "") || "command").split("?")[0];
+  let v = (location.hash.replace("#/", "") || "command").split("?")[0];
+  if (REDIRECT[v]) {                                        // old links land on their new home
+    const extra = (location.hash.split("?")[1] || "");
+    const to = REDIRECT[v] + (extra && !REDIRECT[v].includes("?") ? "?" + extra : "");
+    history.replaceState(null, "", location.pathname + location.search + "#/" + to);
+    v = to.split("?")[0];
+  }
   const view = VIEWS[v] ? v : "command";
-  document.querySelectorAll(".tabs a").forEach((a) => { a.classList.toggle("active", a.dataset.view === view); a.setAttribute("aria-current", a.dataset.view === view ? "page" : "false"); });
+  document.querySelectorAll(".tabs a, .bottom-tabs a").forEach((a) => { a.classList.toggle("active", a.dataset.view === view); a.setAttribute("aria-current", a.dataset.view === view ? "page" : "false"); });
   const more = document.querySelector(".more-nav");
   if (more) { more.classList.toggle("active", !!more.querySelector(`a[data-view="${view}"]`)); more.open = false; }
   closeDrawer();
@@ -1815,7 +2116,8 @@ document.addEventListener("keydown", (e) => {
 })();
 if ($("#refresh")) $("#refresh").addEventListener("click", () => boot(true));
 $("#theme").addEventListener("click", () => {
-  const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  const cur = document.documentElement.dataset.theme || (window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+  const t = cur === "dark" ? "light" : "dark";             // follows the system until toggled; the choice is remembered
   document.documentElement.dataset.theme = t; try { localStorage.setItem("fr-theme", t); } catch (e) {}
   route();
 });
