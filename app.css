@@ -698,3 +698,14 @@ table.agents td.s1 { color: var(--up); } table.agents td.s-1, table.agents td.sv
 .mon-list li { border-left: 3px solid var(--line2); padding: 2px 0 2px 10px; font-size: var(--fs-sm); line-height: 1.45; }
 .mon-list li.mon-ch { border-left-color: var(--accent); }
 .mon-list li.mon-gap { border-left-style: dashed; }
+
+/* committee conclusion (synthesis) */
+.syn { border: 1px solid var(--accent); border-radius: 10px; padding: 14px 16px; background: var(--panel); }
+.syn h3 { margin: 14px 0 6px; font-size: var(--fs-md, 15px); }
+.syn-bl { font-size: 16px; font-weight: 600; line-height: 1.45; margin: 8px 0 12px; }
+.ai-label { font-size: var(--fs-xs, 12px); color: var(--muted); margin: 0 0 6px; }
+.syn-card { border-left: 3px solid var(--accent); padding: 4px 0 4px 10px; margin: 6px 0; }
+.syn-card p { margin: 4px 0; }
+.syn-two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .syn-two { grid-template-columns: 1fr; } }
+.syn-v p { margin: 4px 0 0; }

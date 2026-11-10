@@ -328,12 +328,21 @@ function reportHtml(r, label) {
 async function viewReports(main) {
   main.innerHTML = skel();
   const d = await load("/api/reports");
-  main.innerHTML = `<div class="head"><div><h1>Reports</h1><p class="sub">The weekly outlook sets the frame (Sundays); the premarket plan (about 8:45 ET) and the post-market review (about 4:35 ET) follow each trading day.</p></div></div>
+  let sy = null;
+  try { sy = await load("/api/synthesis"); } catch (e) { sy = null; }
+  main.innerHTML = `${sy ? `<h2>Committee Conclusions</h2><p class="sub">${esc(sy.label)}. One a weekday after the close; saved reports never change.</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Data Date</th><th>Written</th><th>Source</th><th></th></tr></thead><tbody>
+    ${(sy.archive || []).map((a, i) => `<tr><td class="num">${esc(a.asof)}</td><td>${esc((a.created_at || "").slice(0, 16).replace("T", " "))} UTC</td><td>${esc(a.source)}${a.note ? `<div class="faint small">${esc(a.note)}</div>` : ""}</td>
+      <td><button class="btn ghost" data-syn="${i}">Open</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No conclusions yet.</td></tr>`}</tbody></table></div><div id="syn-open"></div>` : ""}
+    <div class="head"><div><h1>Reports</h1><p class="sub">The weekly outlook sets the frame (Sundays); the premarket plan (about 8:45 ET) and the post-market review (about 4:35 ET) follow each trading day.</p></div></div>
     <div class="reps">${reportHtml(d.premarket, "Premarket plan")}${reportHtml(d.postmarket, "Post-market review")}${reportHtml(d.weekly, "Weekly outlook")}</div>
     <h2>Archive</h2><div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Report</th><th></th></tr></thead><tbody>
     ${(d.archive || []).map((a) => `<tr><td class="num">${esc(a.report_date)}</td><td>${esc({ weekly: "Weekly outlook", premarket: "Premarket plan", postmarket: "Post-market review" }[a.kind])}</td>
       <td><button class="btn ghost" data-rep="${esc(a.report_id)}">Open</button></td></tr>`).join("") || `<tr><td colspan="3" class="empty">No reports yet.</td></tr>`}</tbody></table></div>
     <div id="rep-open"></div>`;
+  main.querySelectorAll("[data-syn]").forEach((b) => b.addEventListener("click", () => {
+    const a = sy.archive[+b.dataset.syn]; $("#syn-open").innerHTML = synthesisHtml({ ...a, label: sy.label }, null); $("#syn-open").scrollIntoView();
+  }));
   main.querySelectorAll("[data-rep]").forEach((b) => b.addEventListener("click", async () => {
     try { const r = await load(`/api/report?id=${encodeURIComponent(b.dataset.rep)}`); $("#rep-open").innerHTML = reportHtml(r, ""); $("#rep-open").scrollIntoView(); }
     catch (e) { $("#rep-open").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
@@ -417,11 +426,23 @@ async function viewSettings(main) {
     catch (err) { $("#hold-msg").textContent = "Not saved: " + err.message; }
   });
 }
+function synCompareHtml(sy) {
+  if (!sy || !sy.comparison) return "";
+  const C = sy.comparison, w = C.waits || [];
+  const cell = (o) => (o.status === "scored" ? `${o.excess >= 0 ? "+" : ""}${o.excess.toFixed(2)} pts` : esc(o.status));
+  return `<h2>Synthesis vs Rule Vote vs AI Note</h2><p class="sub">${esc(C.note)}</p>
+    <div class="tbl-wrap"><table class="sortable"><thead><tr><th>Source</th><th class="num">Calls</th><th class="num">Matured</th><th class="num">Hit Rate vs Benchmark</th><th class="num">Avg Excess In Call Direction</th></tr></thead><tbody>
+    ${C.rows.map((r) => `<tr><td><b>${esc(r.source)}</b></td><td class="num">${r.calls}</td><td class="num">${r.matured}</td><td class="num">${r.hit_rate_pct != null ? r.hit_rate_pct + "%" : "—"}</td><td class="num">${r.avg_excess_in_call_direction_pct != null ? r.avg_excess_in_call_direction_pct + " pts" : "—"}</td></tr>`).join("")}</tbody></table></div>
+    ${w.length ? `<h3>Was Waiting Right?</h3><p class="sub">Return of each Wait or Hold name vs its benchmark from the next open, at 20 and 60 sessions.</p>
+    <div class="tbl-wrap"><table class="sortable"><thead><tr><th>Stock</th><th>Decision</th><th>Report</th><th>From</th><th class="num">20 Sessions</th><th class="num">60 Sessions</th></tr></thead><tbody>
+    ${w.map((x) => `<tr><td><b>${esc(x.ticker)}</b></td><td>${esc(x.decision)}${x.waits_for ? `<div class="faint small">${esc(x.waits_for)}</div>` : ""}</td><td>${esc(x.report_id.endsWith("_thread") ? "thread (midday)" : "evening")}</td><td>${esc(x.window_start)}</td><td class="num">${cell(x.h20)}</td><td class="num">${cell(x.h60)}</td></tr>`).join("")}</tbody></table></div>` : ""}`;
+}
 async function viewTrack(main) {
   main.innerHTML = skel();
   const t = await load("/api/track");
-  let pf = null;
+  let pf = null, sy = null;
   try { pf = await load("/api/performance"); } catch (e) { pf = null; }
+  try { sy = await load("/api/synthesis"); } catch (e) { sy = null; }
   const bt = t.backtest || {};
   const btRows = Object.entries(bt).filter(([, v]) => v && v.excess_return_by_bucket);
   const evaluated = t.independent_evaluated;
@@ -437,6 +458,7 @@ async function viewTrack(main) {
   const pc = (x) => Math.round(x * 100) + "%";
   main.innerHTML = `<div class="evidence ev-${esc(ev.state || "none")}" role="alert" aria-live="polite"><b>Evidence: </b>${esc(ev.banner || "Evidence state unavailable.")}${(ev.details || []).map((d) => `<div>${esc(d)}</div>`).join("")}</div>
     <div class="head"><div><h1>Track record</h1><p class="sub">Hypothetical research performance — no trades are executed. Original calls are locked and never edited.</p></div></div>
+    ${synCompareHtml(sy)}
     ${ruleTable}
     <h2>Live hit rate vs QQQ (matured calls)</h2><p class="sub">Independent buy/bearish calls whose horizon has passed. A hit = the stock beat QQQ (for a bearish call: lagged QQQ), the same test as the back-test and the forecast ledger; QQQ itself is judged against SPY. 95% Wilson interval. The last column is the older raw measure (did the price move the called way), kept for reference only.</p>
     <div class="tbl-wrap"><table><thead><tr><th>Horizon</th><th>Calls</th><th>Beat QQQ</th><th>Hit rate vs QQQ</th><th>95% CI</th><th>Reading</th><th>Raw direction hit (secondary)</th></tr></thead><tbody>
@@ -949,8 +971,9 @@ function committeeCallHtml(k, th) {
   const v = (th && th.valuation) || {}, dcf = v.dcf || {};
   return `<section class="ccall" aria-label="Committee call">
     <div class="ccall-h"><h3>Committee Call</h3>${callPill(k)}<span class="cv">${esc(convText(k))}</span></div>
-    <p class="hl">${esc(k.headline)}</p>
     ${k.veto ? `<p class="veto">Risk veto: ${esc(k.veto.join("; "))}.</p>` : ""}
+    ${synCardHtml(k)}
+    <p class="hl">${k.synthesis && k.synthesis.shown === "synthesis" ? `<span class="faint small">Rule vote:</span> ` : ""}${esc(k.headline)}</p>
     <dl class="rec-f">
       <div><dt>Invalidation</dt><dd>${esc(k.invalidation_text)}</dd></div>
       <div><dt>Entry</dt><dd>${k.entry != null ? money2(k.entry) : "No entry: not a buying call."}</dd></div>
@@ -1272,6 +1295,46 @@ function watchHtml(w) {
       <ul class="hl-list">${h.top.map(hl).join("") || `<li class="faint">No important headlines in the last three days.</li>`}</ul>
       ${h.more.length ? `<details class="more"><summary>More Headlines (${h.more.length})</summary><ul class="hl-list">${h.more.map(hl).join("")}</ul></details>` : ""}</section>`;
 }
+
+/* Evening synthesis ("Committee Conclusion", fr/synthesis.py): AI-written judgment over the analysts' findings. */
+const SYN_CLS = { Act: "c-buy", Enter: "c-buy", Wait: "c-hold", Hold: "c-hold", Avoid: "c-avoid", Reduce: "c-red", "No view": "",
+  "Buy now": "c-buy", "Buy below": "c-acc", "Too expensive": "c-avoid", "Not judged": "", "Not recorded": "" };
+const synPill = (d) => `<span class="call ${SYN_CLS[d] || ""}">${esc(d)}</span>`;
+const ltText = (lt) => (!lt ? "—" : lt.verdict === "Buy below" && lt.level != null ? `Buy below ${money2(lt.level)}` : lt.verdict);
+const ltPill = (lt) => `<span class="call ${SYN_CLS[(lt || {}).verdict] || ""}">${esc(ltText(lt))}</span>`;
+const swingOf = (r) => r.swing || r.decision;
+function synthesisHtml(rep, st, full = true) {
+  if (!rep) return `<section class="cc-sec syn"><h2>Committee Conclusion</h2><p class="faint">Synthesis not available today. The rule vote below stands on its own.</p></section>`;
+  const P = rep.payload || {}, M = P.market || {}, D = P.deep_dive || {}, T = P.table || [];
+  const stale = st && !st.available_today;
+  const diff = T.filter((r) => r.differs);
+  return `<section class="cc-sec syn" aria-label="Committee conclusion">
+    <h2>Committee Conclusion</h2>
+    <p class="ai-label">${esc(rep.label)}. Written ${esc((rep.created_at || "").slice(0, 16).replace("T", " "))} UTC from the ${esc(fmtDay(rep.asof))} data${rep.model ? `; model ${esc(rep.model)}` : ""}.${stale ? ` <b>Synthesis not available today; this is the latest report.</b>` : ""}</p>
+    ${(P.bottom_line || []).length ? `<ol class="syn-bl">${P.bottom_line.map((b) => `<li>${esc(b)}</li>`).join("")}</ol>` : ""}
+    ${full && M.conclusion ? `<h3>Market</h3><p>${esc(M.conclusion)}</p>${(M.arguments || []).length ? `<ul>${M.arguments.map((a) => `<li>${esc(a)}</li>`).join("")}</ul>` : ""}${M.change_mind ? `<p><b>What would change it:</b> ${esc(M.change_mind)}</p>` : ""}` : ""}
+    ${full && D.ticker ? `<h3>Deep Dive: ${esc(D.ticker)}</h3><dl class="rec-f"><div><dt>Case For</dt><dd>${esc(D.case_for)}</dd></div><div><dt>Case Against</dt><dd>${esc(D.case_against)}</dd></div><div><dt>What Decides It</dt><dd>${esc(D.decides)}</dd></div></dl>` : ""}
+    <div class="tbl-wrap"><table class="sortable syn-tbl"><thead><tr><th>Stock</th><th>Long-Term</th><th>Swing</th><th>Why</th><th>What Would Change It</th><th>Rule Vote</th></tr></thead><tbody>
+      ${T.map((r) => `<tr><td><a href="#" data-open="${esc(r.ticker)}"><b>${esc(r.ticker)}</b></a></td>
+        <td data-v="${esc(ltText(r.longterm))}">${ltPill(r.longterm)}${r.longterm_note ? `<div class="faint small">${esc(r.longterm_note)}</div>` : r.longterm && r.longterm.why ? `<div class="faint small">${esc(r.longterm.why)}</div>` : ""}</td>
+        <td data-v="${esc(swingOf(r))}">${synPill(swingOf(r))}${r.waits_for ? `<div class="small">${esc(r.waits_for)}</div>` : ""}</td><td>${esc(r.why || "—")}</td><td>${esc(r.change || "—")}</td>
+        <td>${r.vote ? esc(r.vote) : "—"}${r.differs ? `<div class="faint small">${r.reason ? "differs: " + esc(r.reason) : "differs, no reason given: cards show the vote"}</div>` : ""}</td></tr>`).join("")}
+    </tbody></table></div>
+    ${full && diff.length ? `<h3>Where The Swing Call Differs From The Vote</h3><ul>${diff.map((r) => `<li><b>${esc(r.ticker)}</b>: vote ${esc(r.vote)}, swing ${esc(swingOf(r))}. ${r.reason ? esc(r.reason) : "No reason given, so the stock card keeps the vote."}</li>`).join("")}</ul>` : ""}
+    ${full && (P.limits || []).length ? `<h3>Limits</h3><ul class="faint">${P.limits.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+  </section>`;
+}
+/* A stock card's headline: the synthesis decision where it may overrule the vote, the rule vote beneath. Veto first. */
+function synCardHtml(c) {
+  const s = c.synthesis;
+  if (!s) return "";
+  const lt = `<div class="syn-v"><span class="faint small">Long-term</span> ${ltPill(s.longterm)}<p class="small">${esc(s.longterm_note || (s.longterm || {}).why || "")}</p></div>`;
+  const sw = s.shown === "synthesis"
+    ? `<div class="syn-v"><span class="faint small">Swing</span> ${synPill(s.swing)} <span class="faint small">${s.differs ? `overrules the vote (${esc(s.vote)})` : `agrees with the vote (${esc(s.vote)})`}</span>
+        ${s.waits_for ? `<p class="small"><b>${esc(s.waits_for)}</b></p>` : ""}<p class="small">${esc(s.why || "")}${s.differs && s.reason ? ` <b>Why it differs:</b> ${esc(s.reason)}` : ""}</p></div>`
+    : `<div class="syn-v"><span class="faint small">Swing</span> <span class="faint small">${esc(s.why_vote || "")} The rule vote below stands.</span></div>`;
+  return `<div class="syn-card"><div class="syn-two">${lt}${sw}</div><p class="faint small">${esc(s.label)}. Risk vetoes and the earnings cap apply to the swing call only.</p></div>`;
+}
 async function viewCommand(main) {
   main.innerHTML = skel();
   const k = await load("/api/committee");
@@ -1284,6 +1347,7 @@ async function viewCommand(main) {
     <span class="rc rc-${esc((rc.call || "").toLowerCase().replace(/[^a-z]/g, ""))}"><b>${esc(rc.call || "—")}</b>: ${esc(rc.why || "")}</span>
     <span class="faint">Data from the ${esc(fmtDay(k.asof))} close; prices end-of-day</span>
   </section>
+  ${synthesisHtml(k.synthesis, k.synthesis_status)}
   <section class="cc-hero">
     <h1 class="cc-title">CIO Briefing</h1>
     <ol class="brief-list">${(B.bullets || []).map((x) => `<li><span class="ag">${esc(x.agent)}</span> ${esc(x.text)}</li>`).join("")}</ol>
@@ -1310,6 +1374,7 @@ async function viewCommand(main) {
   <section class="cc-sec"><h2>PM Sign-off</h2><p class="sub">Nothing is executed: there is no broker connection. These need your decision.</p>
     <ul>${(B.signoff || []).map((s) => `<li><b>${esc(s.item)}</b>: ${esc(s.detail)}</li>`).join("")}</ul></section>
   ${disclosure(k.disclosure)}`;
+  main.querySelectorAll(".syn [data-open]").forEach((x) => x.addEventListener("click", (e) => { e.preventDefault(); openStock(x.dataset.open); }));
   enableSort(main);
 }
 
@@ -1329,8 +1394,9 @@ function recCardHtml(c) {
   const up = c.target != null && c.price ? (c.target / c.price - 1) * 100 : null;
   return `<article class="rec" id="rec-${esc(c.ticker)}">
       <header><b class="tk">${esc(c.ticker)}</b> <span class="faint">${esc(c.name || "")}</span>${callPill(c)}<span class="cv">${esc(convText(c))}</span><span class="px">${money2(c.price)}</span></header>
-      <p class="hl">${esc(c.headline)}</p>
       ${c.veto ? `<p class="veto">Risk veto: ${esc(c.veto.join("; "))}. No call is made while it stands.</p>` : ""}
+      ${synCardHtml(c)}
+      <p class="hl">${c.synthesis && c.synthesis.shown === "synthesis" ? `<span class="faint small">Rule vote:</span> ` : ""}${esc(c.headline)}</p>
       <dl class="rec-f">
         <div><dt>Invalidation</dt><dd>${esc(c.invalidation_text)}</dd></div>
         <div><dt>Entry</dt><dd>${c.entry != null ? `${money2(c.entry)} (top of the nearest support zone)` : "No entry: not a buying call."}</dd></div>
