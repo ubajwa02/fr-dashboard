@@ -1449,7 +1449,7 @@ function tomorrowHtml(T) {
       ${M ? `<p class="tm-master"><b>${esc(M.line)}</b> <span class="faint">QQQ is ${M.dist_pct != null ? `${M.dist_pct.toFixed(1)}%` : ""} below it.</span></p>
         <ul class="tm-tr">${(T.unlocked || []).map(act).join("") || `<li class="faint tm-none">${esc(T.unlocked_none || "")}</li>`}</ul>` : ""}`
     : `<ul class="tm-tr">${(T.actions || []).map(act).join("") || `<li class="faint tm-none">No level gives a definite action tomorrow.</li>`}</ul>`;
-  return `<section class="tm-card" aria-label="Tomorrow"><div class="tm-h"><h2>Tomorrow: ${esc(T.label)}</h2><span class="faint">${esc(T.label_note || "")} From the ${esc(fmtDay(T.asof))} close.</span></div>
+  return `<section class="tm-card" aria-label="Tomorrow"><div class="tm-h"><h2>${esc(T.heading || "Tomorrow")}: ${esc(T.label)}</h2><span class="faint">${esc(T.label_note || "")} From the ${esc(fmtDay(T.asof))} close.</span></div>
     ${T.note ? `<p class="tm-note">${esc(T.note)}</p>` : ""}
     <div class="tm-grid">
       <div class="tm-plan"><h3 class="tm-l">What to do</h3>${plan}</div>
