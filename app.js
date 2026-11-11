@@ -1008,7 +1008,7 @@ async function openStock(t) {
       openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(t)}</span></div><p class="muted" style="margin-top:12px">${esc(d.error)}</p>`);
       return;
     }
-    c = c || d.card; kn = d.keynums; mentor = d.mentor; scen = d.scenarios; extra = { levels: d.levels, moves: d.moves_with, challenge: d.challenge, oc: d.options_check, thesis: d.thesis, daily: d.daily, committee: d.committee, profile: d.profile, monitor: d.monitor, scorecard: d.scorecard };
+    c = c || d.card; kn = d.keynums; mentor = d.mentor; scen = d.scenarios; extra = { levels: d.levels, moves: d.moves_with, challenge: d.challenge, oc: d.options_check, thesis: d.thesis, daily: d.daily, committee: d.committee, profile: d.profile, monitor: d.monitor, scorecard: d.scorecard, qa: d.qa };
     if (d.scorecard && d.scorecard.range) (state.scorecards = state.scorecards || {})[t] = d.scorecard.range;
     try { state.board = state.board || await load("/api/board"); } catch (e) { state.board = null; }
   } catch (e) {
@@ -1019,6 +1019,7 @@ async function openStock(t) {
     <div class="dh"><span class="px num">${money(c.price)}</span><span class="num ${dirCls(c.change_1d)}">${pct(c.change_1d)} last session</span></div>
     ${stockHeadV3(c, boardRow(c.ticker), extra.scorecard)}
     <div id="chart-box"></div>
+    ${qaHtml(extra.qa)}
     <details class="fold v3-more"><summary>Committee Explanation And What Changed</summary>
     ${profileHtml(extra.profile, c)}
     ${committeeCallHtml(extra.committee, extra.thesis)}
@@ -1437,12 +1438,37 @@ function verdictBlock(v, report) {
     ${report ? `<p class="vl-src">${esc(report.label)}. <a href="#/reports">Full report</a></p>` : ""}
   </section>`;
 }
+/* Tomorrow card (fr/tomorrow.py): the next session at a glance, above everything else on Home. The full What to
+   watch list stays below. */
+function tomorrowHtml(T) {
+  if (!T) return "";
+  const day = (iso) => new Date(iso + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const act = (a) => `<li><button type="button" class="tm-tk" data-open="${esc(a.ticker)}">${esc(a.ticker)}</button><span class="faint num">${money2(a.price)}</span><span class="tm-m">${esc(a.line)}</span></li>`;
+  const M = T.master;
+  const plan = T.lead ? `<p class="tm-lead">${esc(T.lead)}</p>
+      ${M ? `<p class="tm-master"><b>${esc(M.line)}</b> <span class="faint">QQQ is ${M.dist_pct != null ? `${M.dist_pct.toFixed(1)}%` : ""} below it.</span></p>
+        <ul class="tm-tr">${(T.unlocked || []).map(act).join("") || `<li class="faint tm-none">${esc(T.unlocked_none || "")}</li>`}</ul>` : ""}`
+    : `<ul class="tm-tr">${(T.actions || []).map(act).join("") || `<li class="faint tm-none">No level gives a definite action tomorrow.</li>`}</ul>`;
+  return `<section class="tm-card" aria-label="Tomorrow"><div class="tm-h"><h2>Tomorrow: ${esc(T.label)}</h2><span class="faint">${esc(T.label_note || "")} From the ${esc(fmtDay(T.asof))} close.</span></div>
+    ${T.note ? `<p class="tm-note">${esc(T.note)}</p>` : ""}
+    <div class="tm-grid">
+      <div class="tm-plan"><h3 class="tm-l">What to do</h3>${plan}</div>
+      <div><h3 class="tm-l">Events</h3><ul class="tm-ev">${(T.events || []).map((e) => `<li>${esc(e.what)}${e.when ? ` <span class="faint">${esc(e.when)}</span>` : ""}</li>`).join("")}</ul>
+        ${(T.earnings || []).length ? `<h3 class="tm-l">Earnings, next 7 days</h3><div class="tm-chips">${T.earnings.map((e) => `<button type="button" class="tm-chip${e.focus ? " tm-focus" : ""}" data-open="${esc(e.ticker)}" title="${e.focus ? "Focus name" : "Read-across for focus names"}"><b>${esc(e.ticker)}</b> ${esc(day(e.date))}</button>`).join("")}</div>` : ""}</div>
+    </div></section>`;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest(".tm-card [data-open]");
+  if (b) { e.preventDefault(); openStock(b.dataset.open); }
+});
+
 async function viewHome(main) {
   main.innerHTML = skel();
   const d = await load("/api/board");
   const M = d.market, rows = d.rows || [];
   const trendBadge = (t) => vBadge(t ? t[0].toUpperCase() + t.slice(1) : "—", t === "uptrend" ? "Enter" : t === "downtrend" ? "Avoid" : "Wait");
   main.innerHTML = `
+  ${tomorrowHtml(d.tomorrow)}
   <section class="mk-strip" aria-label="Market">
     ${M.indices.map((i) => `<div class="mk-tile"><div class="mk-h"><b>${esc(i.ticker)}</b>${trendBadge(i.trend)}</div>
       <div class="mk-v"><span class="num">${money2(i.close)}</span><span class="num ${dirCls(i.chg)}">${pct(i.chg)}</span></div>${spark(i.spark, 180, 36)}</div>`).join("")}
@@ -1458,7 +1484,9 @@ async function viewHome(main) {
   </section>
   <div class="home-two">
     <section class="watch" aria-label="What to watch"><h2>What To Watch</h2><span class="faint">${esc((d.watch || {}).for || "")}</span>
-      <ol class="tl2">${((d.watch || {}).items || []).map((i) => `<li class="tl2-${esc(i.kind)}"><span class="tl2-when">${esc(i.when)}</span><b>${esc(i.what)}</b></li>`).join("") || `<li class="faint">Nothing scheduled.</li>`}</ol></section>
+      <ol class="tl2">${((d.watch || {}).items || []).map((i) => { const m = i.kind === "level" && /^([A-Z.]{1,6}) near /.exec(i.what || ""), A = m && ((d.tomorrow || {}).watch_actions || {})[m[1]], R = m && rows.find((r) => r.ticker === m[1]);
+        return A ? `<li class="tl2-level"><span class="tl2-when">${esc(i.when)}</span><b>${esc(m[1])}${R ? ` <span class="faint num">${money2(R.price)}</span>` : ""}</b><span class="tl2-act">${esc(A)}</span></li>`
+          : m ? "" : `<li class="tl2-${esc(i.kind)}"><span class="tl2-when">${esc(i.when)}</span><b>${esc(i.what)}</b></li>`; }).join("") || `<li class="faint">Nothing scheduled.</li>`}</ol></section>
     <section class="heads" aria-label="Headlines"><h2>Headlines</h2>
       <ul class="hl2">${(d.headlines || []).map((h) => `<li><span class="imp imp-${esc(h.impact)}" title="Importance ${h.importance} of 100">${h.importance}</span><span class="hl2-t">${esc(h.headline)}</span><span class="faint hl2-m">${esc(h.tickers.join(", "))}</span></li>`).join("")}</ul></section>
   </div>
@@ -1610,6 +1638,68 @@ function valueBand(t, chart, series, plot, v) {
   chart.timeScale().subscribeVisibleLogicalRangeChange(() => requestAnimationFrame(draw));
   setTimeout(draw, 60); window.addEventListener("resize", () => requestAnimationFrame(draw));
 }
+/* Questions the owner asks, answered by code from existing data (fr/qa.py): analyst stances, the forced calls-or-puts
+   pick (a fixed rule; research, not a recorded call) and the options read. Plus the questions already asked about this
+   stock (private; absent from the public snapshot). */
+function qaHtml(Q) {
+  if (!Q) return "";
+  const S = Q.stances, F = Q.forced || {}, O = Q.options || {};
+  const sw = (a) => (a.veto ? ["Veto", "Avoid"] : a.stance > 0 ? ["Bullish", "Enter"] : a.stance < 0 ? ["Bearish", "Avoid"] : ["Neutral", "No view"]);
+  const jump = (to, label) => `<button type="button" class="linkish qa-jump" data-to="${esc(to)}">${esc(label)}</button>`;
+  const where = { forced: ["qa-forced", "If forced: calls or puts"], stances: ["qa-stances", "Analyst stances"], options: ["qa-options", "Options read"], levels: ["chart-box", "Chart and levels"] };
+  const qs = (Q.questions || []).map((q) => { const w = where[q.answered_in]; return `<li><span class="faint">${esc(q.asked_on)}</span> ${esc(q.question)} ${w ? jump(w[0], w[1]) : ""}</li>`; }).join("");
+  const stances = S ? `<section class="qa3" id="qa-stances" aria-label="Analyst stances"><h3 class="h3s">Analyst Stances</h3>
+    <div class="tbl-wrap"><table class="vtable"><thead><tr><th>Analyst</th><th>Stance</th><th>Key number</th></tr></thead><tbody>
+      ${S.rows.map((a) => { const [w, k] = sw(a); return `<tr><td>${esc(a.agent)}</td><td>${a.agent === "CIO" ? vBadge(a.key.replace("Call: ", "")) : vBadge(w, k)}</td><td>${esc(a.agent === "CIO" ? ((x) => x.charAt(0).toUpperCase() + x.slice(1))(a.reason.replace(/^[^:]+: /, "")) : a.key)}</td></tr>`; }).join("")}
+      ${S.longterm ? `<tr><td>Long-term rule</td><td>${vBadge(S.longterm.label || "—", S.longterm.verdict)}</td><td>${esc(S.longterm.key || "")}${S.longterm.data_check === "fail" ? " <b>Data check failed.</b>" : ""}</td></tr>` : ""}</tbody></table></div>
+    <p class="faint small">Stances from the committee card${S.card_price ? ` (priced at ${money2(S.card_price)})` : ""}; key numbers as of ${esc(S.asof || "")}.</p></section>` : "";
+  const st = F.structure, em = F.expected_move;
+  const pickKey = { Calls: "Buy below", Puts: "Avoid", Neither: "No view" };
+  const C = F.compare;
+  const betLabel = F.pick === "Calls" ? "Calls, on trigger" : F.pick === "Puts" ? "Puts, on trigger" : "Neither";
+  const side = C ? `<section class="qa3 qa-side" aria-label="Owning the shares and an options bet"><h3 class="h3s">Owning The Shares Or An Options Bet</h3>
+    <div class="qa-two"><div class="qa-col"><span class="bc-l">Owning the shares (long-term)</span>${ltBadge(F.longterm || { verdict: C.longterm })}
+        <p class="faint small">${esc((F.longterm || {}).why || "")}</p></div>
+      <div class="qa-col"><span class="bc-l">Options bet (short-term)</span>${vBadge(betLabel, pickKey[F.pick] || "No view")}
+        <p class="faint small">${esc(F.reason || "")}</p></div></div>
+    <p class="qa-why"><b>${C.disagree ? "Why they differ" : "Why they agree"}:</b> ${esc(C.why_differ)}</p></section>` : "";
+  const forced = `<details class="fold v3-fold qa3" id="qa-forced"><summary>If Forced: Calls Or Puts</summary>
+    ${C && C.disagree ? `<p class="qa-why">This differs from the long-term view (${esc(ltLabel(F.longterm || { verdict: C.longterm }))}). ${esc(C.why_differ)}</p>` : ""}
+    <div class="ema-top">${vBadge(betLabel, pickKey[F.pick] || "No view")}<span>${esc(F.reason || "")}</span></div>
+    ${F.earnings_label ? `<p class="qa-warn">${esc(F.earnings_label)}</p>` : ""}
+    <dl class="qa-dl">
+      ${F.trigger ? `<dt>Entry trigger</dt><dd>A close ${F.pick === "Puts" ? "below" : "above"} ${money2(F.trigger)}</dd>` : ""}
+      ${F.wrong ? `<dt>Proven wrong</dt><dd>A close ${F.pick === "Puts" ? "above" : "below"} ${money2(F.wrong)}</dd>` : ""}
+      ${em ? `<dt>Expected move</dt><dd>±${em.move_pct}% to ${esc(em.expiry)} (at-the-money straddle ${money2(em.cost)})</dd>` : ""}
+      ${st ? `<dt>Defined-risk structure</dt><dd>${esc(st.name)}, ${esc(st.expiry)}: cost ${money2(st.cost)} (the most it can lose), most it can make ${money2(st.max_gain)}, breakeven ${money2(st.breakeven)} (${st.breakeven_pct > 0 ? "+" : ""}${st.breakeven_pct}% from the close). <span class="faint">${esc(st.units)}.</span></dd>`
+        : F.pick !== "Neither" ? `<dt>Defined-risk structure</dt><dd class="faint">No stored chain for this stock yet.</dd>` : ""}
+      <dt>Rule</dt><dd class="faint">Calls only when the long-term view is Buy now or Buy below and a close above resistance sets the entry; puts only when the short-side analyst flags the stock (${esc(F.shortside || "")}); otherwise neither. Earnings within 7 days: wait for the report.</dd>
+    </dl>
+    <p class="faint small">${esc(F.label || "")}${F.chain_date ? ` Chain as of ${esc(F.chain_date)} close (Yahoo, delayed).` : ""}</p></details>`;
+  const mv = (O.moves || []).map((m) => `<li>${esc(m.expiry)}: ±${m.move_pct}%${m.after_earnings ? " <span class=\"faint\">(includes earnings)</span>" : ""}</li>`).join("");
+  const B = O.busiest || {};
+  const oi = (k) => (B[k] || []).map((x) => `${money2(x.strike)} <span class="faint">(${Number(x.oi).toLocaleString()})</span>`).join(", ") || "—";
+  const opts = `<details class="fold v3-fold qa3" id="qa-options"><summary>Options Read</summary>
+    ${O.chain_date || mv ? `<dl class="qa-dl">
+      ${O.longterm ? `<dt>Long-term view</dt><dd>${ltBadge(O.longterm)} <span class="faint">${esc((O.longterm.reads || []).map((r) => `${r.measure}: ${r.level}`).join("; "))}</span></dd>` : ""}
+      ${mv ? `<dt>Expected move</dt><dd><ul class="qa-ul">${mv}</ul></dd>` : ""}
+      <dt>Implied vs realised</dt><dd>${O.iv != null ? `${O.iv}% implied (nearest monthly) vs ${O.rv ?? "—"}% realised over 20 sessions${O.iv_vs_rv ? ` (${O.iv_vs_rv}×)` : ""}` : "—"}</dd>
+      ${B.expiry ? `<dt>Busiest strikes, ${esc(B.expiry)}</dt><dd>Calls ${oi("C")}<br>Puts ${oi("P")}</dd>` : ""}
+      ${O.put_call_oi != null ? `<dt>Put/call open interest</dt><dd>${O.put_call_oi} <span class="faint">${esc(O.oi_note || "")}</span></dd>` : ""}
+    </dl><p class="faint small">${esc(O.source || "")}${O.chain_date ? `, ${esc(O.chain_date)} close` : ""}. Open interest updates the next morning, so new positions from a session show a day later.</p>`
+    : `<p class="faint">No options data stored for this stock yet.</p>`}</details>`;
+  const ask = qs ? `<aside class="qa-ask" aria-label="Questions already answered"><b>You asked about this stock</b><ul>${qs}</ul></aside>` : "";
+  return ask + side + stances + forced + opts;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest(".qa-jump");
+  if (!b) return;
+  const el = document.getElementById(b.dataset.to);
+  if (!el) return;
+  if (el.tagName === "DETAILS") el.open = true;
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
 /* Stock page header (v3): price, both verdicts, the trigger, the value ribbon, a scorecard and the committee as chips. */
 const boardRow = (t) => ((state.board || {}).rows || []).find((r) => r.ticker === t) || null;
 function stockHeadV3(c, row, sc) {
