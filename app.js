@@ -1308,7 +1308,8 @@ function watchHtml(w) {
 const SYN_CLS = { Act: "c-buy", Enter: "c-buy", Wait: "c-hold", Hold: "c-hold", Avoid: "c-avoid", Reduce: "c-red", "No view": "",
   "Buy now": "c-buy", "Buy below": "c-acc", "Too expensive": "c-avoid", "Not judged": "", "Not recorded": "" };
 const synPill = (d) => `<span class="call ${SYN_CLS[d] || ""}">${esc(d)}</span>`;
-const ltText = (lt) => (!lt ? "—" : lt.verdict === "Buy below" && lt.level != null ? `Buy below ${money2(lt.level)}` : lt.verdict);
+const ltText = (lt) => (!lt ? "—" : lt.verdict === "Buy below" && lt.level != null ? `Buy below ${money2(lt.level)}`
+  : lt.verdict === "Not judged" && lt.lean ? `Leans ${lt.lean}` : lt.verdict);
 const ltPill = (lt) => `<span class="call ${SYN_CLS[(lt || {}).verdict] || ""}">${esc(ltText(lt))}</span>`;
 const swingOf = (r) => r.swing || r.decision;
 function synthesisHtml(rep, st, full = true) {
@@ -1348,9 +1349,15 @@ function synCardHtml(c) {
 /* ======================================================================== v3: Verdict Board (visual first) */
 const VB = { "Buy now": "good", "Buy below": "good-soft", "Too expensive": "bad", "Not judged": "neutral", "Not recorded": "neutral",
   Enter: "good", Wait: "warn", Avoid: "bad", "No view": "neutral", Hold: "warn", Reduce: "bad", Buy: "good", Accumulate: "good-soft", "No Call": "neutral" };
-const vBadge = (label, key) => `<span class="vb vb-${VB[key || label] || "neutral"}">${esc(label)}</span>`;
-const ltLabel = (lt) => (!lt ? "—" : lt.verdict === "Buy below" && lt.level != null ? `Buy below ${money2(lt.level)}` : lt.verdict);
-const ltBadge = (lt) => vBadge(ltLabel(lt), (lt || {}).verdict);
+const vBadge = (label, key, tip) => `<span class="vb vb-${VB[key || label] || "neutral"}"${tip ? ` title="${esc(tip)}"` : ""}>${esc(label)}</span>`;
+const ltLabel = (lt) => (!lt ? "—" : lt.verdict === "Buy below" && lt.level != null ? `Buy below ${money2(lt.level)}`
+  : lt.verdict === "Not judged" && lt.lean ? `Leans ${lt.lean}` : lt.verdict);
+/* The reason as a tooltip where the badge alone can't say it (no buy level: what each value measure says). */
+const ltBadge = (lt) => vBadge(ltLabel(lt), (lt || {}).verdict, lt && lt.reads ? lt.why : null);       // neutral colour: a lean is not a verdict
+/* Data check (fr/integrity.py): nothing when the data passed; a mark with the reasons as its tooltip otherwise. */
+const chkMark = (c) => (!c || !["warn", "fail"].includes(c.status) ? "" :
+  ` <span class="vb vb-${c.status === "fail" ? "bad" : "warn"}" title="${esc([...(c.issues || []), ...(c.warnings || [])].join("; "))}">${c.status === "fail" ? "Data issue" : "Data note"}</span>`);
+const chkLine = (d) => { const k = (d || {}).counts; return k ? ` Data check: ${k.ok} passed${k.warn ? `, ${k.warn} with a note` : ""}${k.fail ? `, ${k.fail} with an issue (not judged)` : ""}.${d.note ? " " + d.note : ""}` : " Data not checked yet."; };
 const daysTo = (iso) => (iso ? Math.round((new Date(iso + "T12:00:00") - new Date(new Date().toDateString() + " 12:00")) / 864e5) : null);
 function earnChip(iso) {
   if (!iso) return `<span class="faint">—</span>`;
@@ -1389,11 +1396,11 @@ function boardHtml(rows) {
   return `<div class="tbl-wrap board-tbl"><table class="sortable vtable"><thead><tr><th>Stock</th><th class="num">Price</th><th class="num">Day</th><th>1 Month</th><th>Long-Term</th><th>To Buy-Below</th><th>Swing</th><th>Trigger</th><th>Earnings</th></tr></thead><tbody>
     ${rows.map((r) => `<tr data-open="${esc(r.ticker)}" tabindex="0"><td><b class="tk">${esc(r.ticker)}</b>${r.veto ? ` <span class="vb vb-bad" title="${esc(r.veto.join("; "))}">Veto</span>` : ""}</td>
       <td class="num">${money2(r.price)}${r.intraday ? `<div class="intra">${money2(r.intraday.price)} ${esc(r.intraday.label)}</div>` : ""}</td><td class="num ${dirCls(r.day_pct)}" data-v="${r.day_pct ?? -999}">${pct(r.day_pct)}</td><td>${spark(r.spark, 96, 26)}</td>
-      <td data-v="${esc(ltLabel(r.longterm))}">${ltBadge(r.longterm)}</td><td data-v="${r.dist_to_buy_pct ?? 999}">${distBar(r)}</td>
+      <td data-v="${esc(ltLabel(r.longterm))}">${ltBadge(r.longterm)}${chkMark(r.check)}</td><td data-v="${r.dist_to_buy_pct ?? 999}">${distBar(r)}</td>
       <td data-v="${esc(r.swing)}">${vBadge(r.swing)}</td><td class="trig">${esc((r.trigger || "").replace(/^Wait for /, "").replace(/\.$/, "")) || "—"}</td><td data-v="${esc(r.earnings || "9999")}">${earnChip(r.earnings)}</td></tr>`).join("")}
     </tbody></table></div>
     <div class="board-cards">${rows.map((r) => `<button class="bcard" data-open="${esc(r.ticker)}"><div class="bc-top"><b class="tk">${esc(r.ticker)}</b><span class="num">${money2(r.price)}${r.intraday ? `<span class="intra">${money2(r.intraday.price)} ${esc(r.intraday.label)}</span>` : ""}</span><span class="num ${dirCls(r.day_pct)}">${pct(r.day_pct)}</span>${spark(r.spark, 84, 24)}</div>
-      <div class="bc-badges"><div><span class="bc-l">Long-term</span>${ltBadge(r.longterm)}</div><div><span class="bc-l">Swing</span>${vBadge(r.swing)}</div></div>
+      <div class="bc-badges"><div><span class="bc-l">Long-term</span>${ltBadge(r.longterm)}${chkMark(r.check)}</div><div><span class="bc-l">Swing</span>${vBadge(r.swing)}</div></div>
       ${r.trigger || r.earnings ? `<div class="bc-trig">${r.trigger ? esc(r.trigger.replace(/\.$/, "")) : ""}${r.earnings ? ` ${earnChip(r.earnings)}` : ""}</div>` : ""}</button>`).join("")}</div>`;
 }
 function wireOpen(root) {
@@ -1446,7 +1453,7 @@ async function viewHome(main) {
   </section>
   ${verdictBlock(d.verdict, d.report)}
   <section class="board" aria-label="Verdict Board">
-    <div class="board-h"><h2>Verdict Board</h2><span class="faint">Long-term: is it a good business at a good price? Swing: the next few weeks. Data from the ${esc(fmtDay(d.asof))} close.</span></div>
+    <div class="board-h"><h2>Verdict Board</h2><span class="faint">Long-term: is it a good business at a good price? Swing: the next few weeks. Data from the ${esc(fmtDay(d.asof))} close.${esc(chkLine(d.data_check))}</span></div>
     ${boardHtml(rows)}
   </section>
   <div class="home-two">
