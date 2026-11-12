@@ -1499,12 +1499,65 @@ function analystNoteHtml(A) {
     </dl>${A.removed ? `<p class="faint small">${A.removed} sentence${A.removed === 1 ? "" : "s"} removed by the number check.</p>` : ""}</section>`;
 }
 
+/* Release-day notes (fr/releases.py): for each major macro release in the next few days, what it has done to QQQ and
+   SPY before (code-computed) and the strategist's hot / in-line / cool plan. Lines are labelled History or Judgment. */
+function releaseHtml(R) {
+  const notes = (R && R.notes) || [];
+  if (!notes.length) return "";
+  const p2 = (x) => x == null ? "—" : `${x > 0 ? "+" : ""}${Number(x).toFixed(2)}%`;
+  const ymd = (iso) => new Date(iso + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  const day = (iso) => new Date(iso + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  const CASE = { hot: "Hot", "in-line": "In line", cool: "Cool" };
+  return notes.map((n, k) => { const N = n.note || {}, D = N.data || {}, H = D.reaction_history || {}, rel = D.release || {};
+    const plans = N.plans || [], first = (plans.find((p) => p.case === "in-line") || plans[0] || {}).case;
+    const fact = (t) => { const h = H[t]; return h ? `<div class="rl-fact"><b>${t}</b><span>Moves <span class="num">${h.median_size_pct.toFixed(2)}%</span></span>
+      <span class="faint">Normal day <span class="num">${h.normal_day_size_pct.toFixed(2)}%</span></span><span>Up <span class="num">${h.up_days_pct}%</span> of the time</span></div>` : ""; };
+    const row = (t) => { const h = H[t]; return h ? `<tr><th scope="row">${t}</th><td class="num">${h.median_size_pct.toFixed(2)}%</td><td class="num">${h.normal_day_size_pct.toFixed(2)}%</td>
+      <td class="num">${h.up_days_pct}%</td><td class="num"><span class="down">${p2(h.worst.move_pct)}</span><br><span class="faint">${esc(ymd(h.worst.date))}</span></td>
+      <td class="num"><span class="up">${p2(h.best.move_pct)}</span><br><span class="faint">${esc(ymd(h.best.date))}</span></td></tr>` : ""; };
+    const last = (t) => H[t] ? `<p class="rl-last"><b>${t}, last 6:</b> ${H[t].last_6.map((x) => `<span class="num ${x.move_pct >= 0 ? "up" : "down"}" title="${esc(x.date)}">${p2(x.move_pct)}</span>`).join(" ")}</p>` : "";
+    const any = H.QQQ || H.SPY;
+    return `<section class="rl-card" data-case="${esc(first || "")}" aria-label="${esc(n.name)} note">
+      <p class="rl-when">${esc(day(n.release_date))}${rel.time_et ? `, ${esc(rel.time_et)} ET` : ""}</p>
+      <h2 class="rl-title">${esc(n.name)}</h2>
+      ${N.bottom_line ? `<p class="rl-bl">${esc(N.bottom_line)}</p>` : ""}
+      ${any ? `<p class="rl-sub">On the past ${esc(String(any.releases))} release days</p><div class="rl-facts">${fact("QQQ")}${fact("SPY")}</div>` : ""}
+      <p class="rl-sub">The plan for each outcome</p>
+      <div class="rl-seg" role="tablist" aria-label="Outcome">${plans.map((p) => `<button type="button" role="tab" class="rl-tab rl-t-${esc(p.case.replace("-", ""))}" data-case="${esc(p.case)}" aria-selected="${p.case === first}">${esc(CASE[p.case] || p.case)}</button>`).join("")}</div>
+      <div class="rl-plans">${plans.map((p) => `<div class="rl-plan rl-${esc(p.case.replace("-", ""))}" data-case="${esc(p.case)}" role="tabpanel"><h3>${esc(CASE[p.case] || p.case)}</h3>
+        <p class="rl-if">${esc(p.if)}</p><p class="rl-then">${esc(p.then)}</p></div>`).join("")}</div>
+      <details class="rl-more"><summary>Why: the history and the reasoning</summary>
+        ${any ? `<div class="tbl-wrap"><table class="rl-tbl"><caption class="faint">Release-day move, previous close to that day's close, ${esc(String(any.releases))} releases since ${esc(ymd(any.since))}</caption>
+          <thead><tr><th></th><th class="num">Typical</th><th class="num">Normal day</th><th class="num">Up days</th><th class="num">Worst</th><th class="num">Best</th></tr></thead>
+          <tbody>${row("QQQ")}${row("SPY")}</tbody></table></div>${last("QQQ")}${last("SPY")}` : ""}
+        <ul class="rl-lines">${(N.lines || []).map((l) => `<li><span class="rl-lab rl-${esc(l.label)}">${l.label === "history" ? "History" : "Judgment"}</span>${esc(l.text)}</li>`).join("")}</ul>
+        ${(D.limits || []).length ? `<p class="faint small">Limits: ${esc(D.limits.join(" "))}</p>` : ""}
+        ${n.removed ? `<p class="faint small">${n.removed} sentence${n.removed === 1 ? "" : "s"} removed by the number check.</p>` : ""}
+      </details>
+      <p class="faint small rl-foot">${esc(N.label || "")} Written ${esc(dateFmt(n.created_at))}. History is computed from stored closes; the plans are the AI strategist's judgment.</p></section>`; }).join("");
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest(".rl-tab");
+  if (!b) return;
+  const card = b.closest(".rl-card");
+  card.dataset.case = b.dataset.case;
+  card.querySelectorAll(".rl-tab").forEach((t) => t.setAttribute("aria-selected", String(t === b)));
+});
+/* Late-price label (fr/freshness.py): shown at the top of every page while stored prices are behind the latest close. */
+async function freshBanner(main) {
+  try {
+    const f = await api("/api/freshness");
+    if (f && f.late && f.text) main.insertAdjacentHTML("afterbegin", `<div class="fresh-banner" role="status">${esc(f.text)}</div>`);
+  } catch (e) { /* the label is optional */ }
+}
+
 async function viewHome(main) {
   main.innerHTML = skel();
-  const [d, AN] = await Promise.all([load("/api/board"), load("/api/analyst").catch(() => null)]);
+  const [d, AN, RL] = await Promise.all([load("/api/board"), load("/api/analyst").catch(() => null), load("/api/releases").catch(() => null)]);
   const M = d.market, rows = d.rows || [];
   const trendBadge = (t) => vBadge(t ? t[0].toUpperCase() + t.slice(1) : "—", t === "uptrend" ? "Enter" : t === "downtrend" ? "Avoid" : "Wait");
   main.innerHTML = `
+  ${releaseHtml(RL)}
   ${analystListHtml(AN)}
   ${tomorrowHtml(d.tomorrow)}
   <section class="mk-strip" aria-label="Market">
@@ -1609,9 +1662,10 @@ async function viewMarket3(main) {
       ${lazyFold("Earnings Intelligence: Before And After Each Report", null, "earnc")}${lazyFold("Full Earnings Calendar", null, "earn")}`;
     wireOpen(main); enableSort(main); wireLazy(main, { earnc: viewEarnC, earn: viewEarnings }); return;
   }
-  const [d, ov] = await Promise.all([load("/api/board"), load("/api/overview")]);
+  const [d, ov, RL] = await Promise.all([load("/api/board"), load("/api/overview"), load("/api/releases").catch(() => null)]);
   const M = d.market, sec = ov.sectors || [], mx = Math.max(1, ...sec.map((x) => Math.abs(x.rel20)));
   main.innerHTML = head + `<p class="vl-text p3-verdict">${esc(ov.verdict.text)}</p>
+    ${releaseHtml(RL)}
     ${stripHtml(d)}
     <div class="m3-two">
       <section><h2 class="h3s">Sectors vs SPY, 20 Days</h2><div class="secbars">${sec.map((x) => `<div class="sb"><span class="sb-n">${esc(x.sector)}</span>
@@ -2269,7 +2323,7 @@ async function route() {
   if (more) { more.classList.toggle("active", !!more.querySelector(`a[data-view="${view}"]`)); more.open = false; }
   closeDrawer();
   const main = $("#main");
-  try { await VIEWS[view](main); } catch (e) { main.innerHTML = `<div class="err">Could not load this view: ${esc(e.message)}</div>`; }
+  try { await VIEWS[view](main); freshBanner(main); } catch (e) { main.innerHTML = `<div class="err">Could not load this view: ${esc(e.message)}</div>`; }
 }
 
 document.addEventListener("click", (e) => {               // close the More menu on any click outside it, or on a choice

@@ -1115,3 +1115,47 @@ main { max-width: 1240px; padding-top: 32px; }
 .an-list .db-l { margin: 4px 0 0; display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; }
 .an-list .db-k { color: var(--muted); font-size: 13px; }
 @media (max-width: 640px) { .an-list .db-l { grid-template-columns: 1fr; gap: 0; } }
+
+/* Release-day notes and the late-price label (2026-11-12). Phone first: the decision, two facts, one plan at a
+   time behind Hot / In line / Cool; the history table and reasoning fold under "Why". */
+.rl-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: var(--s4); margin: 0 0 var(--s4); }
+.rl-when { margin: 0; color: var(--muted); font-size: var(--fs-sm); font-weight: 500; }
+.rl-title { margin: 2px 0 var(--s3); font-size: var(--fs-h2); }
+.rl-bl { margin: 0 0 var(--s4); font-size: 17px; line-height: 1.45; font-weight: 600; }
+.rl-sub { margin: 0 0 var(--s2); color: var(--muted); font-size: var(--fs-sm); }
+.rl-facts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); margin: 0 0 var(--s4); }
+.rl-fact { display: grid; gap: 2px; padding: var(--s3); border-radius: var(--r-sm); background: var(--panel2); font-size: var(--fs-sm); }
+.rl-fact b { font-size: var(--fs-h3); }
+.rl-seg { display: none; }
+.rl-plans { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s3); margin: 0 0 var(--s3); }
+.rl-plan { border: 1px solid var(--line); border-radius: var(--r-sm); padding: var(--s3); background: var(--panel2); }
+.rl-plan h3 { margin: 0 0 var(--s2); font-size: var(--fs-h3); }
+.rl-plan p { margin: 0 0 var(--s2); line-height: var(--lh-body); }
+.rl-if { color: var(--muted); font-size: var(--fs-sm); }
+.rl-then { font-size: var(--fs-body); }
+.rl-hot { border-top: 3px solid var(--down); } .rl-inline { border-top: 3px solid var(--accent); } .rl-cool { border-top: 3px solid var(--up); }
+.rl-more { margin: var(--s2) 0; }
+.rl-more summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; color: var(--accent); }
+.rl-tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); margin-bottom: var(--s2); }
+.rl-tbl caption { text-align: left; caption-side: top; padding-bottom: var(--s1); font-size: var(--fs-xs); }
+.rl-tbl th, .rl-tbl td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+.rl-tbl .num { text-align: right; }
+.rl-last { margin: 0 0 var(--s2); font-size: var(--fs-sm); } .rl-last span { margin-right: 4px; }
+.rl-lines { list-style: none; padding: 0; margin: var(--s3) 0; display: grid; gap: var(--s3); }
+.rl-lines li { line-height: var(--lh-body); }
+.rl-lab { display: inline-block; font-size: var(--fs-xs); font-weight: 600; padding: 1px 7px; border-radius: var(--r-xs); margin-right: 8px; }
+.rl-history { background: var(--accent-soft); color: var(--accent); }
+.rl-judgment { background: var(--warn-soft); color: var(--warn); }
+.rl-foot { margin-top: var(--s2); }
+.fresh-banner { background: var(--warn-soft); color: var(--text); border: 1px solid var(--warn); border-radius: var(--r-sm); padding: 10px 12px; margin: 0 0 var(--s3); font-size: var(--fs-sm); line-height: 1.45; }
+@media (max-width: 900px) {
+  .rl-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: var(--r-sm); background: var(--panel2); margin: 0 0 var(--s3); }
+  .rl-tab { min-height: 44px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
+  .rl-tab[aria-selected="true"] { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.18); }
+  .rl-tab.rl-t-hot[aria-selected="true"] { box-shadow: inset 0 -3px 0 var(--down); }
+  .rl-tab.rl-t-inline[aria-selected="true"] { box-shadow: inset 0 -3px 0 var(--accent); }
+  .rl-tab.rl-t-cool[aria-selected="true"] { box-shadow: inset 0 -3px 0 var(--up); }
+  .rl-plans { grid-template-columns: 1fr; }
+  .rl-plan { display: none; } .rl-plan h3 { display: none; }
+  .rl-card[data-case="hot"] .rl-plan[data-case="hot"], .rl-card[data-case="in-line"] .rl-plan[data-case="in-line"], .rl-card[data-case="cool"] .rl-plan[data-case="cool"] { display: block; }
+}
