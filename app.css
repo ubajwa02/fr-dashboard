@@ -1104,3 +1104,6 @@ main { max-width: 1240px; padding-top: 32px; }
 .td-foot { margin-top: 18px; font-size: var(--fs-xs); }
 .td-toggle a { white-space: nowrap; }
 @media (max-width: 560px) { .td-toggle { width: 100%; } .td-toggle a { flex: 1; text-align: center; } .td-toggle a .faint { display: none; } }
+/* 2026-11-12: with the Today tab there are seven tabs; at 641-1180px they needed ~30px more than the row has, so the
+   last one (Record) was clipped. Tighter tab spacing at those widths keeps every tab visible. */
+@media (min-width: 641px) and (max-width: 1180px) { .topbar .tabs a { margin: 0 4px; } .topbar .tabs { gap: 4px; } }
