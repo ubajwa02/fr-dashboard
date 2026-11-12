@@ -1159,3 +1159,10 @@ main { max-width: 1240px; padding-top: 32px; }
   .rl-plan { display: none; } .rl-plan h3 { display: none; }
   .rl-card[data-case="hot"] .rl-plan[data-case="hot"], .rl-card[data-case="in-line"] .rl-plan[data-case="in-line"], .rl-card[data-case="cool"] .rl-plan[data-case="cool"] { display: block; }
 }
+
+/* One price, plain checks, met triggers, analyst disagreement (2026-11-12) */
+.met { color: var(--up); }
+.an-differ { margin: 6px 0 0; padding: 6px 10px; border-left: 3px solid var(--warn); background: var(--warn-soft); border-radius: var(--r-xs); font-size: var(--fs-sm); line-height: 1.45; text-align: left; }
+.bcard .an-differ, .bcard .bc-trig { white-space: normal; overflow-wrap: anywhere; min-width: 0; max-width: 100%; box-sizing: border-box; }
+.bcard { grid-template-columns: minmax(0, 1fr); max-width: 100%; }
+.bc-chk { font-size: var(--fs-xs); color: var(--warn); text-align: left; white-space: normal; }

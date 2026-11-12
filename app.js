@@ -1358,7 +1358,7 @@ const ltLabel = (lt) => (!lt ? "—" : lt.verdict === "Buy below" && lt.level !=
 const ltBadge = (lt) => vBadge(ltLabel(lt), (lt || {}).verdict, lt && lt.reads ? lt.why : null);       // neutral colour: a lean is not a verdict
 /* Data check (fr/integrity.py): nothing when the data passed; a mark with the reasons as its tooltip otherwise. */
 const chkMark = (c) => (!c || !["warn", "fail"].includes(c.status) ? "" :
-  ` <span class="vb vb-${c.status === "fail" ? "bad" : "warn"}" title="${esc([...(c.issues || []), ...(c.warnings || [])].join("; "))}">${c.status === "fail" ? "Data issue" : "Data note"}</span>`);
+  ` <span class="vb vb-${c.status === "fail" ? "bad" : "warn"}" title="${esc([...(c.issues || []), ...(c.warnings || [])].join("; "))}">${esc(c.text || (c.status === "fail" ? "Data issue" : "Data note"))}</span>`);
 const chkLine = (d) => { const k = (d || {}).counts; return k ? ` Data check: ${k.ok} passed${k.warn ? `, ${k.warn} with a note` : ""}${k.fail ? `, ${k.fail} with an issue (not judged)` : ""}.${d.note ? " " + d.note : ""}` : " Data not checked yet."; };
 const daysTo = (iso) => (iso ? Math.round((new Date(iso + "T12:00:00") - new Date(new Date().toDateString() + " 12:00")) / 864e5) : null);
 function earnChip(iso) {
@@ -1394,16 +1394,23 @@ function vixGauge(v) {
   return `<div class="gauge-v" title="VIX bands: under 15 calm, 15–20 normal, 20–30 elevated, 30+ high">
     <div class="gv-track"><span style="width:37.5%" class="gv-calm"></span><span style="width:12.5%" class="gv-norm"></span><span style="width:25%" class="gv-elev"></span><span style="width:25%" class="gv-high"></span><i style="left:${p}%"></i></div></div>`;
 }
+/* One labelled price per stock (fr/board.py quote): "Close Nov 12" or "Live 12:30 ET", never both. */
+const qPrice = (r, inline) => { const q = r.quote; if (!q) return money2(r.price);
+  return `${money2(q.price)}${inline ? `<span class="intra">${esc(q.label)}</span>` : `<div class="intra">${esc(q.label)}</div>`}`; };
+/* When the value rule and the analyst note disagree, say so and why (fr/board.py analyst_view). */
+const anDiffer = (r) => { const a = r.analyst; return a && a.differs ? `<div class="an-differ"><b>Analyst says ${esc(a.action[0].toUpperCase() + a.action.slice(1))}.</b> ${esc(a.decision)}</div>` : ""; };
 function boardHtml(rows) {
   return `<div class="tbl-wrap board-tbl"><table class="sortable vtable"><thead><tr><th>Stock</th><th class="num">Price</th><th class="num">Day</th><th>1 Month</th><th>Long-Term</th><th>To Buy-Below</th><th>Swing</th><th>Trigger</th><th>Earnings</th></tr></thead><tbody>
     ${rows.map((r) => `<tr data-open="${esc(r.ticker)}" tabindex="0"><td><b class="tk">${esc(r.ticker)}</b>${r.veto ? ` <span class="vb vb-bad" title="${esc(r.veto.join("; "))}">Veto</span>` : ""}</td>
-      <td class="num">${money2(r.price)}${r.intraday ? `<div class="intra">${money2(r.intraday.price)} ${esc(r.intraday.label)}</div>` : ""}</td><td class="num ${dirCls(r.day_pct)}" data-v="${r.day_pct ?? -999}">${pct(r.day_pct)}</td><td>${spark(r.spark, 96, 26)}</td>
+      <td class="num">${qPrice(r)}</td><td class="num ${dirCls(r.day_pct)}" data-v="${r.day_pct ?? -999}" title="${esc((r.quote || {}).vs || "")}">${pct(r.day_pct)}</td><td>${spark(r.spark, 96, 26)}</td>
       <td data-v="${esc(ltLabel(r.longterm))}">${ltBadge(r.longterm)}${chkMark(r.check)}</td><td data-v="${r.dist_to_buy_pct ?? 999}">${distBar(r)}</td>
-      <td data-v="${esc(r.swing)}">${vBadge(r.swing)}</td><td class="trig">${esc((r.trigger || "").replace(/^Wait for /, "").replace(/\.$/, "")) || "—"}</td><td data-v="${esc(r.earnings || "9999")}">${earnChip(r.earnings)}</td></tr>`).join("")}
+      <td data-v="${esc(r.swing)}">${vBadge(r.swing)}</td><td class="trig">${r.trigger_met ? `<span class="met">${esc(r.trigger_met)}</span>` : esc((r.trigger || "").replace(/^Wait for /, "").replace(/\.$/, "")) || "—"}</td><td data-v="${esc(r.earnings || "9999")}">${earnChip(r.earnings)}</td></tr>`).join("")}
     </tbody></table></div>
-    <div class="board-cards">${rows.map((r) => `<button class="bcard" data-open="${esc(r.ticker)}"><div class="bc-top"><b class="tk">${esc(r.ticker)}</b><span class="num">${money2(r.price)}${r.intraday ? `<span class="intra">${money2(r.intraday.price)} ${esc(r.intraday.label)}</span>` : ""}</span><span class="num ${dirCls(r.day_pct)}">${pct(r.day_pct)}</span>${spark(r.spark, 84, 24)}</div>
-      <div class="bc-badges"><div><span class="bc-l">Long-term</span>${ltBadge(r.longterm)}${chkMark(r.check)}</div><div><span class="bc-l">Swing</span>${vBadge(r.swing)}</div></div>
-      ${r.trigger || r.earnings ? `<div class="bc-trig">${r.trigger ? esc(r.trigger.replace(/\.$/, "")) : ""}${r.earnings ? ` ${earnChip(r.earnings)}` : ""}</div>` : ""}</button>`).join("")}</div>`;
+    <div class="board-cards">${rows.map((r) => `<button class="bcard" data-open="${esc(r.ticker)}"><div class="bc-top"><b class="tk">${esc(r.ticker)}</b><span class="num">${qPrice(r, true)}</span><span class="num ${dirCls(r.day_pct)}">${pct(r.day_pct)}</span>${spark(r.spark, 84, 24)}</div>
+      <div class="bc-badges"><div><span class="bc-l">Long-term</span>${ltBadge(r.longterm)}</div><div><span class="bc-l">Swing</span>${vBadge(r.swing)}</div></div>
+      ${(r.check || {}).text ? `<div class="bc-chk ${r.check.status === "fail" ? "down" : ""}">${esc(r.check.text)}</div>` : ""}
+      ${r.trigger || r.earnings ? `<div class="bc-trig">${r.trigger_met ? `<span class="met">${esc(r.trigger_met)}</span>` : r.trigger ? esc(r.trigger.replace(/\.$/, "")) : ""}${r.earnings ? ` ${earnChip(r.earnings)}` : ""}</div>` : ""}
+      ${anDiffer(r)}</button>`).join("")}</div>`;
 }
 function wireOpen(root) {
   root.querySelectorAll("[data-open]").forEach((x) => {
@@ -1799,9 +1806,10 @@ function stockHeadV3(c, row, sc) {
   const st = { good: "s-good", mixed: "s-mixed", bad: "s-bad", none: "s-none" };
   const glyph = (a) => (a.veto ? "⊘" : a.stance > 0 ? "▲" : a.stance < 0 ? "▼" : "●");
   return `<section class="sh3" aria-label="Verdicts">
-    ${row && row.intraday ? `<p class="intra">Last close ${money2(row.price)}; ${money2(row.intraday.price)} ${esc(row.intraday.label)} (not a close: scores and levels use the last close).</p>` : ""}
+    ${row && row.quote && row.quote.kind === "live" ? `<p class="intra">${money2(row.quote.price)} ${esc(row.quote.label)}, ${pct(row.quote.change_pct)} ${esc(row.quote.vs)}. Not a close: scores and levels use the ${money2(row.price)} close.</p>` : ""}
+    ${row && row.analyst && row.analyst.differs ? `<p class="an-differ">${esc(row.analyst.why_differ)}</p>` : ""}
     ${row ? `<div class="sh3-badges"><div><span class="bc-l">Long-term</span>${ltBadge(row.longterm)}</div><div><span class="bc-l">Swing</span>${vBadge(row.swing)}</div>
-      ${row.trigger ? `<div class="sh3-trig"><span class="bc-l">Trigger</span><b>${esc(row.trigger.replace(/^Wait for /, "").replace(/\.$/, ""))}</b></div>` : ""}
+      ${row.trigger ? `<div class="sh3-trig"><span class="bc-l">Trigger</span><b>${row.trigger_met ? esc(row.trigger_met) : esc(row.trigger.replace(/^Wait for /, "").replace(/\.$/, ""))}</b></div>` : ""}
       ${row.earnings ? `<div><span class="bc-l">Earnings</span>${earnChip(row.earnings)}</div>` : ""}</div>` : ""}
     ${sc && sc.range ? valueRibbon(sc.range, c.price) : ""}
     ${sc ? `<div class="scg">${sc.tiles.map((t) => `<div class="sct ${st[t.state]}" title="${esc(t.note)}"><span>${esc(t.label)}</span><b class="num">${esc(t.value)}</b></div>`).join("")}</div>
