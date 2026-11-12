@@ -1008,7 +1008,7 @@ async function openStock(t) {
       openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(t)}</span></div><p class="muted" style="margin-top:12px">${esc(d.error)}</p>`);
       return;
     }
-    c = c || d.card; kn = d.keynums; mentor = d.mentor; scen = d.scenarios; extra = { levels: d.levels, moves: d.moves_with, challenge: d.challenge, oc: d.options_check, thesis: d.thesis, daily: d.daily, committee: d.committee, profile: d.profile, monitor: d.monitor, scorecard: d.scorecard, qa: d.qa };
+    c = c || d.card; kn = d.keynums; mentor = d.mentor; scen = d.scenarios; extra = { levels: d.levels, moves: d.moves_with, challenge: d.challenge, oc: d.options_check, thesis: d.thesis, daily: d.daily, committee: d.committee, profile: d.profile, monitor: d.monitor, scorecard: d.scorecard, qa: d.qa, analyst: d.analyst };
     if (d.scorecard && d.scorecard.range) (state.scorecards = state.scorecards || {})[t] = d.scorecard.range;
     try { state.board = state.board || await load("/api/board"); } catch (e) { state.board = null; }
   } catch (e) {
@@ -1019,6 +1019,7 @@ async function openStock(t) {
     <div class="dh"><span class="px num">${money(c.price)}</span><span class="num ${dirCls(c.change_1d)}">${pct(c.change_1d)} last session</span></div>
     ${stockHeadV3(c, boardRow(c.ticker), extra.scorecard)}
     <div id="chart-box"></div>
+    ${analystNoteHtml(extra.analyst)}
     ${qaHtml(extra.qa)}
     <details class="fold v3-more"><summary>Committee Explanation And What Changed</summary>
     ${profileHtml(extra.profile, c)}
@@ -1462,12 +1463,49 @@ document.addEventListener("click", (e) => {
   if (b) { e.preventDefault(); openStock(b.dataset.open); }
 });
 
+/* AI analyst notes (fr/analyst.py): written by the system each evening and on major news, from stored data only;
+   every number checked against that data. Home shows three lines per stock; the stock page shows the full note. */
+const anWhen = (n) => `${n.trigger === "news" ? "Updated on news" : "Written"} ${esc(dateFmt(n.created_at))}, from the ${esc(fmtDay(n.asof))} close`;
+const anAction = (d) => { const a = ((d || {}).longterm || {}).action || ""; return vBadge(a ? a[0].toUpperCase() + a.slice(1) : "—", { buy: "Enter", add: "Enter", avoid: "Avoid", trim: "Avoid", hold: "Wait", wait: "Wait" }[a] || "No view"); };
+function analystListHtml(A) {
+  const notes = (A && A.notes) || [];
+  if (!notes.length) return "";
+  return `<section class="an-list" aria-label="Analyst view"><div class="tm-h"><h2>Analyst View</h2><span class="faint">${esc(A.label)} Written by the AI analyst from our data; every number is checked against it.</span></div>
+    <ul class="db-list">${notes.map((n) => { const N = n.note || {}, S = N.summary || {}, mk = n.ticker === "MARKET";
+      return `<li class="db-item"><div class="db-h">${mk ? `<b>Market</b>` : `<button type="button" class="tm-tk" data-open="${esc(n.ticker)}">${esc(n.ticker)}</button>`}${mk ? "" : anAction(N.decision)}<span class="an-hl">${esc(N.headline || "")}</span></div>
+        <p class="db-l"><span class="db-k">Thesis</span>${esc(S.thesis || "")}</p><p class="db-l"><span class="db-k">Decision</span>${esc(S.decision || "")}</p>
+        ${S.act_at ? `<p class="db-l"><span class="db-k">Act at</span><b>${esc(S.act_at)}</b></p>` : ""}</li>`; }).join("")}</ul></section>`;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest(".an-list [data-open]");
+  if (b) { e.preventDefault(); openStock(b.dataset.open); }
+});
+function analystNoteHtml(A) {
+  if (!A || !A.note) return "";
+  const N = A.note, W = N.worth || {}, D = N.decision || {}, L = D.longterm || {}, S = D.swing || {};
+  const ul = (xs) => `<ul class="qa-ul">${(xs || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
+  return `<section class="an-note" id="an-note" aria-label="Analyst note"><div class="tm-h"><h3 class="h3s">Analyst Note</h3><span class="faint">${anWhen(A)}. ${esc(N.label || "")}</span></div>
+    <p class="an-head"><b>${esc(N.headline || "")}</b></p>
+    <dl class="qa-dl">
+      <dt>Decision</dt><dd>${anAction(D)} ${esc(L.why || "")}${(L.levels || []).length ? `<ul class="qa-ul">${L.levels.map((l) => `<li><b class="num">${money2(l.price)}</b>: ${esc(l.what)}</li>`).join("")}</ul>` : ""}</dd>
+      <dt>Swing / options</dt><dd>${esc((S.action || "").replace(/^./, (c) => c.toUpperCase()))}${S.entry ? `: entry ${money2(S.entry)}` : ""}${S.stop ? `, stop ${money2(S.stop)}` : ""}${S.target ? `, target ${money2(S.target)}` : ""}. ${esc(S.why || "")}</dd>
+      ${D.timing ? `<dt>Timing</dt><dd>${esc(D.timing)}</dd>` : ""}
+      <dt>What's happening</dt><dd>${esc(N.happening || "")}</dd>
+      <dt>The business</dt><dd>${esc(N.business || "")}</dd>
+      <dt>What it's worth</dt><dd>${esc(W.text || "")}${W.low != null && W.high != null ? ` <b>Fair value ${money2(W.low)}–${money2(W.high)}.</b>` : ""}${W.key_assumption ? ` <span class="faint">Key assumption: ${esc(W.key_assumption)}</span>` : ""}</dd>
+      <dt>Bull case</dt><dd>${ul(N.bull)}</dd><dt>Bear case</dt><dd>${ul(N.bear)}</dd>
+      <dt>What would change the view</dt><dd>${ul(N.change_mind)}</dd>
+      ${N.what_changed ? `<dt>Since the last note</dt><dd>${esc(N.what_changed)}</dd>` : ""}
+    </dl>${A.removed ? `<p class="faint small">${A.removed} sentence${A.removed === 1 ? "" : "s"} removed by the number check.</p>` : ""}</section>`;
+}
+
 async function viewHome(main) {
   main.innerHTML = skel();
-  const d = await load("/api/board");
+  const [d, AN] = await Promise.all([load("/api/board"), load("/api/analyst").catch(() => null)]);
   const M = d.market, rows = d.rows || [];
   const trendBadge = (t) => vBadge(t ? t[0].toUpperCase() + t.slice(1) : "—", t === "uptrend" ? "Enter" : t === "downtrend" ? "Avoid" : "Wait");
   main.innerHTML = `
+  ${analystListHtml(AN)}
   ${tomorrowHtml(d.tomorrow)}
   <section class="mk-strip" aria-label="Market">
     ${M.indices.map((i) => `<div class="mk-tile"><div class="mk-h"><b>${esc(i.ticker)}</b>${trendBadge(i.trend)}</div>

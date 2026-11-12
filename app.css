@@ -1107,3 +1107,11 @@ main { max-width: 1240px; padding-top: 32px; }
 /* 2026-11-12: with the Today tab there are seven tabs; at 641-1180px they needed ~30px more than the row has, so the
    last one (Record) was clipped. Tighter tab spacing at those widths keeps every tab visible. */
 @media (min-width: 641px) and (max-width: 1180px) { .topbar .tabs a { margin: 0 4px; } .topbar .tabs { gap: 4px; } }
+.an-list { margin: 0 0 20px; } .an-hl { color: var(--muted); } .an-note { margin-top: 18px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.an-head { margin: 6px 0 10px; font-size: 17px; }
+.an-list .db-list, .an-note .db-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.an-list .db-item { padding: 10px 0; border-top: 1px solid var(--line); }
+.an-list .db-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 10px; }
+.an-list .db-l { margin: 4px 0 0; display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; }
+.an-list .db-k { color: var(--muted); font-size: 13px; }
+@media (max-width: 640px) { .an-list .db-l { grid-template-columns: 1fr; gap: 0; } }
