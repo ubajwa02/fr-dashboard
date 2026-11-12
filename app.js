@@ -2156,19 +2156,76 @@ document.addEventListener("click", (e) => {
   tip.style.left = x + "px"; tip.style.top = y + "px";
 });
 
-const VIEWS = { more: viewMore, command: viewHome, stocks: viewStocks3, ideas: viewIdeas, market: viewMarket3, reports: viewReports, record: viewRecord, ops: viewOps, settings: viewSettings };
+
+/* Today (fr/daypage.py, 2026-11-12): the one page to read before the open, and the recap after the close. Short by
+   design: the main thing, a take per stock with a stance, an action and the levels; tap a stock for its full page. */
+const STANCE_CLS = { "Buy": "good", "Add on dips": "good", "Hold": "neutral", "Wait": "neutral", "Trim": "bad", "Avoid": "bad" };
+const stanceBadge = (s) => (s ? `<span class="td-stance td-${STANCE_CLS[s] || "neutral"}">${esc(s)}</span>` : "");
+function tdPrice(p) {
+  if (!p) return "";
+  const ext = p.extended != null ? `<span class="faint">${esc(p.extended_time || "extended hours")}</span> <span class="num">${money2(p.extended)}</span> <span class="num ${dirCls(p.extended_pct)}">${pct(p.extended_pct, 1)}</span>` : "";
+  return `<span class="td-px"><span class="num">${money2(p.close)}</span> <span class="num ${dirCls(p.change_1d_pct)}">${pct(p.change_1d_pct, 1)}</span>${ext ? ` · ${ext}` : ""}</span>`;
+}
+const tdLevels = (lv) => (lv && lv.length ? `<ul class="td-levels">${lv.map((l) => `<li><b class="num">${money2(l.price)}</b> ${esc(l.means)}</li>`).join("")}</ul>` : "");
+const tdTk = (t) => `<button class="td-tk" data-open="${esc(t)}" aria-label="Open ${esc(t)}">${esc(t)}</button>`;
+
+async function viewToday(main) {
+  main.innerHTML = skel();
+  const d = await api("/api/today");
+  const want = (location.hash.split("?")[1] || "").includes("recap") ? "recap" : (location.hash.split("?")[1] || "").includes("premarket") ? "premarket" : d.show;
+  const P = d[want];
+  const title = { premarket: "Before the open", recap: "After the close" };
+  const toggle = `<div class="td-toggle" role="tablist">${["premarket", "recap"].map((k) => `<a role="tab" href="#/today?${k}" class="${k === want ? "on" : ""}" aria-selected="${k === want}">${title[k]}${d[k] ? ` <span class="faint">${esc(fmtDay(d[k].session_date))}</span>` : ""}</a>`).join("")}</div>`;
+  if (!P || !P.page) {
+    main.innerHTML = `<div class="head"><div><h1>${title[want]}</h1></div>${toggle}</div>
+      <div class="card"><p>${P && P.status === "failed" ? `The page for ${esc(fmtDay(P.session_date))} could not be written (${esc(P.error || "error")}). It retries at the next scheduled time; the full research is under Home and Stocks.`
+        : `No page yet. It is written each weekday at 8:50 AM (before the open) and 4:40 PM (after the close), Eastern.`}</p></div>`;
+    return;
+  }
+  const g = P.page, M = g.market || {}, px = P.prices || {};
+  const t1 = g.stocks.filter((s) => s.tier === 1), t2 = g.stocks.filter((s) => s.tier === 2), t3 = g.stocks.filter((s) => s.tier === 3);
+  main.innerHTML = `<div class="head"><div><h1>${title[want]} · ${esc(new Date(P.session_date + "T12:00:00").toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }))}</h1>
+      <p class="sub">${esc(d.label)}. Written ${esc(new Date(P.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))}. Tap a stock for its full page.</p></div>${toggle}</div>
+    <section class="td-market card" aria-label="Market">
+      ${M.day_type ? `<p class="td-daytype">${esc(M.day_type)}</p>` : ""}
+      <p class="td-main">${esc(M.headline)}</p>
+      ${(M.watch || []).length ? `<h3>What to watch</h3><ul>${M.watch.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+    </section>
+    ${t1.map((s) => `<article class="td-card card">
+      <div class="td-h">${tdTk(s.ticker)}${tdPrice(px[s.ticker])}${stanceBadge(s.long_term.stance)}</div>
+      <p class="td-hl">${esc(s.headline)}</p>
+      ${s.why ? `<p>${esc(s.why)}</p>` : ""}
+      ${s.long_term.reason ? `<p><b>Long term:</b> ${esc(s.long_term.reason)}</p>` : ""}
+      ${s.what_would_change_it ? `<p class="muted"><b>What would change it:</b> ${esc(s.what_would_change_it)}</p>` : ""}
+      ${s.action ? `<p class="td-act"><b>Action:</b> ${esc(s.action)}</p>` : ""}
+      ${tdLevels(s.levels)}
+    </article>`).join("")}
+    ${t2.length ? `<section class="td-rest" aria-label="Also worth a look"><h2>Also worth a look</h2>${t2.map((s) => `<div class="td-row">
+      <div class="td-h">${tdTk(s.ticker)}${tdPrice(px[s.ticker])}${stanceBadge(s.long_term.stance)}</div>
+      <p class="td-hl">${esc(s.headline)}</p>
+      ${s.action ? `<p class="td-act"><b>Action:</b> ${esc(s.action)}</p>` : ""}
+      ${tdLevels(s.levels)}
+      ${s.long_term.reason ? `<p class="faint">Long term: ${esc(s.long_term.reason)}</p>` : ""}</div>`).join("")}</section>` : ""}
+    ${t3.length ? `<details class="td-quiet"><summary>Nothing new: ${t3.map((s) => esc(s.ticker)).join(", ")}</summary>${t3.map((s) => `<div class="td-row">
+      <div class="td-h">${tdTk(s.ticker)}${tdPrice(px[s.ticker])}${stanceBadge(s.long_term.stance)}</div>
+      ${s.headline ? `<p class="td-hl">${esc(s.headline)}</p>` : ""}${s.action ? `<p class="td-act"><b>Action:</b> ${esc(s.action)}</p>` : ""}${tdLevels(s.levels)}</div>`).join("")}</details>` : ""}
+    <p class="faint td-foot">Model: ${esc(P.model || "—")}. Every number comes from the app's data; sentences with numbers we couldn't check are removed. Opinion, not personal advice.</p>`;
+  main.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => openStock(b.dataset.open)));
+}
+
+const VIEWS = { today: viewToday, more: viewMore, command: viewHome, stocks: viewStocks3, ideas: viewIdeas, market: viewMarket3, reports: viewReports, record: viewRecord, ops: viewOps, settings: viewSettings };
 const skel = () => `<div class="list">${'<div class="skeleton"></div>'.repeat(6)}</div>`;
 function whenPlotly(fn, tries = 0) { if (window.Plotly) fn(); else if (tries < 60) setTimeout(() => whenPlotly(fn, tries + 1), 100); else { const e = $("#treemap"); if (e) e.innerHTML = `<div class="empty">Heatmap library unavailable (offline?).</div>`; } }
 
 async function route() {
-  let v = (location.hash.replace("#/", "") || "command").split("?")[0];
+  let v = (location.hash.replace("#/", "") || "today").split("?")[0];
   if (REDIRECT[v]) {                                        // old links land on their new home
     const extra = (location.hash.split("?")[1] || "");
     const to = REDIRECT[v] + (extra && !REDIRECT[v].includes("?") ? "?" + extra : "");
     history.replaceState(null, "", location.pathname + location.search + "#/" + to);
     v = to.split("?")[0];
   }
-  const view = VIEWS[v] ? v : "command";
+  const view = VIEWS[v] ? v : "today";
   document.querySelectorAll(".tabs a, .bottom-tabs a").forEach((a) => { a.classList.toggle("active", a.dataset.view === view); a.setAttribute("aria-current", a.dataset.view === view ? "page" : "false"); });
   const more = document.querySelector(".more-nav");
   if (more) { more.classList.toggle("active", !!more.querySelector(`a[data-view="${view}"]`)); more.open = false; }
@@ -2187,12 +2244,14 @@ async function boot(force = false) {
   if (!state.home) main.innerHTML = skel();
   try {
     if (force) { await api("/api/refresh", { method: "POST" }); state.cache = {}; }
-    state.home = await load("/api/home", force);
-    renderChrome(state.home);
     // Deep link: ?open=NVDA opens that stock's panel (shareable; also used for screenshots).
     // Read it before route(): route() closes the drawer, which clears ?open from the address.
     const open = new URLSearchParams(location.search).get("open");
-    await route();
+    const todayFirst = !force && /^#?\/?(today)?(\?|$)/.test(location.hash.replace("#/", "")) && !state.home;
+    const early = todayFirst ? route() : null;               // the Today page doesn't wait for the slower home data
+    state.home = await load("/api/home", force);
+    renderChrome(state.home);
+    if (early) await early; else await route();
     if (open && !force) openStock(open.toUpperCase());
   } catch (e) { main.innerHTML = `<div class="err">Could not load research data: ${esc(e.message)}. The research database may still be building — try Refresh in a minute.</div>`; }
 }
