@@ -2356,7 +2356,7 @@ async function boot(force = false) {
   } catch (e) { main.innerHTML = `<div class="err">Could not load research data: ${esc(e.message)}. The research database may still be building — try Refresh in a minute.</div>`; }
 }
 
-window.addEventListener("hashchange", route);
+if (!window.FR_PHONE) window.addEventListener("hashchange", route);
 $("#drawer-close").addEventListener("click", closeDrawer);
 $("#scrim").addEventListener("click", closeDrawer);
 document.addEventListener("keydown", (e) => {
@@ -2386,9 +2386,11 @@ $("#theme").addEventListener("click", () => {
   document.documentElement.dataset.theme = t; try { localStorage.setItem("fr-theme", t); } catch (e) {}
   route();
 });
-setInterval(tickCountdown, 1000);
-setInterval(() => boot(true), 5 * 60 * 1000);   // pick up new research runs automatically
-boot();
+if (!window.FR_PHONE) {                                  // the iPhone layout (web/phone.js) loads its own data
+  setInterval(tickCountdown, 1000);
+  setInterval(() => boot(true), 5 * 60 * 1000);   // pick up new research runs automatically
+  boot();
+}
 
 /* Label self-check (scripts/check_chart_labels.py): with ?selfcheck=1 the page measures every chart label and writes
    the result into <pre id="selfcheck">. Fails on a label overlapping another label or sitting on a plot. */
