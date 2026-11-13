@@ -1166,3 +1166,8 @@ main { max-width: 1240px; padding-top: 32px; }
 .bcard .an-differ, .bcard .bc-trig { white-space: normal; overflow-wrap: anywhere; min-width: 0; max-width: 100%; box-sizing: border-box; }
 .bcard { grid-template-columns: minmax(0, 1fr); max-width: 100%; }
 .bc-chk { font-size: var(--fs-xs); color: var(--warn); text-align: left; white-space: normal; }
+
+/* Section labels read as labels, not body text (2026-11-13) */
+.qa-dl dt { color: var(--text); font-weight: 600; }
+.an-note .qa-dl dt { padding-top: 2px; }
+@media (max-width: 640px) { .qa-dl dt { margin-top: 10px; } }

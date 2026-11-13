@@ -124,7 +124,7 @@ html.phone-mode #ph {
 #ph .ph-sh-head h3 { margin: 0; font-size: 19px !important; font-weight: 700; min-width: 0; }
 #ph .ph-sh-head button { min-height: 44px; min-width: 56px; color: var(--accent) !important; font-weight: 600 !important; font-size: 16px !important; }
 #ph .ph-sh-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 16px calc(28px + env(safe-area-inset-bottom)); }
-#ph .ph-sh-body h4 { margin: 20px 0 8px; font-size: 15px !important; font-weight: 500; color: var(--muted); }
+#ph .ph-sh-body h4 { margin: 24px 0 6px; font-size: 17px !important; font-weight: 700; color: var(--text); letter-spacing: -.005em; }
 #ph .ph-sh-body p, #ph .ph-sh-body li { font-size: 15px !important; line-height: 1.5; }
 #ph .ph-sh-body p { margin: 0; }
 #ph .ph-sh-body ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
@@ -155,3 +155,13 @@ html.phone-mode #ph {
 @media (prefers-reduced-motion: reduce) {
   #ph *, #ph *::before, #ph *::after { transition: none !important; animation: none !important; }
 }
+
+/* Morning call */
+#ph .ph-mc { padding: 16px 0 4px; margin-bottom: 14px; }
+#ph .ph-mc > p { padding: 0 16px; }
+#ph .ph-mc .ph-call { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+#ph .ph-mc-why { margin: 6px 0 0; color: var(--muted); font-size: 15px !important; }
+#ph .ph-mc-list { margin-top: 10px; border-top: 1px solid var(--line); }
+#ph .ph-mc-list .ph-rh { grid-template-columns: minmax(0, 1fr) 0 auto; }
+#ph .ph-mc-list .ph-id .nm { white-space: normal; }
+#ph .ph-since { color: var(--muted); margin-top: 8px; }

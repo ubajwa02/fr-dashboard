@@ -43,8 +43,9 @@
       <button type="button" class="ph-rh" aria-expanded="false"><div class="ph-id"><div class="tk">${h(s.t)}</div><div class="nm">${h(s.sub || s.name)}</div></div>
         ${priceHtml(s.quote)}${pillHtml(s.pill)}</button>
       <div class="ph-body"><div><div class="ph-inner">
-        <div class="ph-calls"><div class="ph-cb"><small>Long-term</small><div>${h(s.longterm)}</div></div><div class="ph-cb"><small>Swing</small><div>${h(s.swing)}</div></div></div>
+        <div class="ph-calls"><div class="ph-cb"><small>Long-term</small><div>${h(s.longterm)}</div>${s.rule ? `<small>Value rule: ${h(s.rule)}</small>` : ""}</div><div class="ph-cb"><small>Swing</small><div>${h(s.swing)}</div></div></div>
         ${s.why ? `<p class="ph-why">${h(s.why)}</p>` : ""}
+        ${s.note && s.note.what_changed ? `<p class="ph-flag ph-since">${h(s.note.what_changed)}</p>` : ""}
         ${lvRows(s.levels)}
         ${s.differs ? `<p class="ph-differ"><b>Analyst says ${h(s.analyst_action[0].toUpperCase() + s.analyst_action.slice(1))}.</b> ${h(s.differs.split("The analyst note says ")[1] || "")}</p>` : ""}
         ${s.check ? `<p class="ph-flag">${h(s.check)}</p>` : ""}
@@ -58,12 +59,37 @@
       ${e.release || e.ticker ? `<span class="ph-chev" aria-hidden="true">›</span>` : ""}</button>`;
   }
 
+  /* Morning call (fr/morning.py): the before-the-open calls on top of Today; graded after the close. */
+  const CALLW = { buy: "Buy", add: "Add", hold: "Hold", trim: "Trim", avoid: "Avoid", nothing: "Do nothing", "lean in": "Lean in", selective: "Be selective", "stand aside": "Stand aside" };
+  const CALLC = { buy: "buy", add: "buy", hold: "hold", trim: "avoid", avoid: "avoid", nothing: "none" };
+  const GRADE = { right: ["Right", "buy"], wrong: ["Wrong", "avoid"], not_triggered: ["Not triggered", "none"], no_bet: ["No bet", "none"], no_data: ["Pending", "none"] };
+  const tm = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  function morningHtml(M) {
+    if (!M) return "";
+    const d = dayFmt(M.session_date), today = new Date().toISOString().slice(0, 10) === M.session_date;
+    const trig = (c) => c.trigger ? `${c.trigger.side === "above" ? "If it trades at or above" : "If it trades at or below"} ${money(c.trigger.price)}` : "At the open";
+    const pill = (c) => c.grade ? `<span class="ph-pill p-${GRADE[c.grade.status][1]}">${GRADE[c.grade.status][0]}</span>` : `<span class="ph-pill p-${CALLC[c.call] || "none"}">${h(CALLW[c.call] || c.call)}</span>`;
+    const mk = M.market || {};
+    return `<section class="ph-group ph-mc" aria-label="Morning call">
+      <p class="ph-when">${M.graded ? "Graded after the close" : "Morning call"}, ${h(d.wd)} ${h(d.m)} ${d.d}. Written ${h(tm(M.created_at))}${M.late ? ", after the open" : ""}${today ? "" : ""}</p>
+      ${mk.call ? `<p class="ph-call">${h(CALLW[mk.call] || mk.call)}${mk.grade && mk.grade.status !== "no_bet" ? ` <span class="ph-pill p-${GRADE[mk.grade.status][1]}">${GRADE[mk.grade.status][0]}</span>` : ""}</p>` : ""}
+      ${mk.if_then ? `<p class="ph-what">${h(mk.if_then)}</p>` : ""}
+      ${mk.grade ? `<p class="ph-mc-why">${h(mk.grade.why)}</p>` : ""}
+      <div class="ph-mc-list">${M.calls.map((c) => `<div class="ph-row" data-mc="${h(c.t)}">
+        <button type="button" class="ph-rh" aria-expanded="false"><div class="ph-id"><div class="tk">${h(c.t)}</div><div class="nm">${h(CALLW[c.call] || c.call)}: ${h(trig(c))}</div></div><span></span>${pill(c)}</button>
+        <div class="ph-body"><div><div class="ph-inner">
+          ${c.grade ? `<p class="ph-why"><b>${GRADE[c.grade.status][0]}.</b> ${h(c.grade.why)}</p>` : ""}
+          ${c.action ? `<p class="ph-why">${h(c.action)}</p>` : ""}
+          ${c.if_then ? `<p class="ph-differ">${h(c.if_then)}</p>` : ""}
+        </div></div></div></div>`).join("")}</div></section>`;
+  }
+
   /* ---------------------------------------------------------------- views */
   const VIEWS = {
     today() {
       const M = D.market, act = D.stocks.filter((s) => s.act), soon = D.events.slice(0, 3);
       const wd = new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
-      return head("Today", wd) + `
+      return head("Today", wd) + morningHtml(D.morning) + `
         <section class="ph-group ph-mkt" aria-label="Market"><p class="ph-when">${h(M.when)}</p><p class="ph-call">${h(M.call)}</p>
           ${M.what ? `<p class="ph-what">${h(M.what)}</p>` : ""}${lvRows(M.levels)}</section>
         ${soon.length ? `<h2 class="ph-gl">Coming up</h2><div class="ph-group">${soon.map((e) => evRow(e, D.events.indexOf(e))).join("")}</div>` : ""}
@@ -87,6 +113,9 @@
       const R = D.record;
       return head("Record", "Are the calls any good?") + `
         <section class="ph-group ph-stat"><small>Verdict so far</small><p class="ph-big">${h(R.verdict)}</p><p>${h(R.text)}</p></section>
+        ${(R.board || []).length ? `<h2 class="ph-gl"><span>Scoreboard</span><span class="ph-count">vs QQQ</span></h2>
+          <div class="ph-group">${R.board.map((b) => `<div class="ph-ev ph-static"><div class="ph-et"><div>${h(b.name)}</div><p>${h(b.verdict)}${b.logged ? `; ${b.logged} logged` : ""}</p></div>
+            <span class="ph-pill p-${!b.judged ? "none" : b.hit_rate >= 50 ? "buy" : "avoid"}">${b.hit_rate != null ? b.hit_rate + "%" : "—"}</span></div>`).join("")}</div>` : ""}
         <h2 class="ph-gl"><span>Recent calls</span><span class="ph-count">${R.recorded} logged</span></h2>
         <div class="ph-group">${R.calls.map((c) => `<div class="ph-ev ph-static"><div class="ph-et"><div>${h(c.t)}: ${h(c.call)}</div><p>${h(c.by)}, logged ${h(c.logged)}, graded after ${c.days} trading days</p></div>
           <span class="ph-pill p-${c.status === "Right" ? "buy" : c.status === "Wrong" ? "avoid" : "wait"}">${h(c.status)}</span></div>`).join("")}</div>

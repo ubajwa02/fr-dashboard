@@ -312,13 +312,16 @@ function ledgerHtml(l, minSample) {
     ${l.scored < minSample ? `<p class="faint" style="font-size:12px">${l.scored} scored so far: too few to judge (needs ${minSample}+). Signal status: experimental, so no probability is shown.</p>` : ""}`;
 }
 /* Reports (platform Phase 6): latest weekly / premarket / post-market, verdict first, detail folded; archive. */
+const RP_DATA = {}; let RP_N = 0;
+const rpKey = (d) => { const k = "rp" + (++RP_N); RP_DATA[k] = d; return k; };
 function reportHtml(r, label) {
   if (!r) return `<div class="rep"><h3>${esc(label)}</h3><p class="faint">Not generated yet.</p></div>`;
   const items = (xs) => `<ul>${xs.map((x) => `<li>${esc(x.text)} ${TAG(x.tag)}</li>`).join("")}</ul>`;
   const dl = (r.daily || []).length ? `<details open><summary>Today's charts: the read and tomorrow's watch</summary><div class="rp-daily">${r.daily.map((d) => `
       <figure class="rp-fig"><figcaption><b>${esc(d.ticker)}</b> <span class="num ${dirCls(d.change_1d)}">${pct(d.change_1d)}</span></figcaption>
-      <div class="rp-chart" data-t="${esc(d.ticker)}" data-i="${r.daily.indexOf(d)}"></div>${dailyHtml(d)}</figure>`).join("")}</div></details>` : "";
-  setTimeout(() => document.querySelectorAll(".rp-chart").forEach((el) => drawMini(el, r.daily[+el.dataset.i])), 0);
+      <div class="rp-chart" data-t="${esc(d.ticker)}" data-k="${rpKey(d)}"></div>${dailyHtml(d)}</figure>`).join("")}</div></details>` : "";
+  // Each chart keeps its own data (several reports render on one page; an index into the last report's list broke them).
+  setTimeout(() => document.querySelectorAll(".rp-chart[data-k]:not([data-drawn])").forEach((el) => { const d = RP_DATA[el.dataset.k]; if (d) { el.dataset.drawn = "1"; drawMini(el, d); } }), 0);
   return `<div class="rep"><h3>${esc(r.title)}</h3>${r.headline ? `<p class="rep-h">${esc(r.headline)}</p>` : ""}<p class="rep-v">${esc(r.verdict.text)} ${TAG(r.verdict.tag)}</p>
     ${dl}
     ${r.sections.map((s, i) => `<details${i === 0 ? " open" : ""}><summary>${esc(s.title)}</summary>${items(s.items)}</details>`).join("")}
@@ -1329,7 +1332,7 @@ function synthesisHtml(rep, st, full = true) {
     <div class="tbl-wrap"><table class="sortable syn-tbl"><thead><tr><th>Stock</th><th>Long-Term</th><th>Swing</th><th>Why</th><th>What Would Change It</th><th>Rule Vote</th></tr></thead><tbody>
       ${T.map((r) => `<tr><td><a href="#" data-open="${esc(r.ticker)}"><b>${esc(r.ticker)}</b></a></td>
         <td data-v="${esc(ltText(r.longterm))}">${ltPill(r.longterm)}${r.longterm_note ? `<div class="faint small">${esc(r.longterm_note)}</div>` : r.longterm && r.longterm.why ? `<div class="faint small">${esc(r.longterm.why)}</div>` : ""}</td>
-        <td data-v="${esc(swingOf(r))}">${synPill(swingOf(r))}${r.waits_for ? `<div class="small">${esc(r.waits_for)}</div>` : ""}</td><td>${esc(r.why || "—")}</td><td>${esc(r.change || "—")}</td>
+        <td data-v="${esc(swingOf(r))}">${synPill(swingOf(r))}${r.waits_for_met ? `<div class="small met">${esc(r.waits_for_met)}</div>` : r.waits_for ? `<div class="small">${esc(r.waits_for)}</div>` : ""}</td><td>${esc(r.why || "—")}</td><td>${esc(r.change || "—")}</td>
         <td>${r.vote ? esc(r.vote) : "—"}${r.differs ? `<div class="faint small">${r.reason ? "differs: " + esc(r.reason) : "differs, no reason given: cards show the vote"}</div>` : ""}</td></tr>`).join("")}
     </tbody></table></div>
     ${full && diff.length ? `<h3>Where The Swing Call Differs From The Vote</h3><ul>${diff.map((r) => `<li><b>${esc(r.ticker)}</b>: vote ${esc(r.vote)}, swing ${esc(swingOf(r))}. ${r.reason ? esc(r.reason) : "No reason given, so the stock card keeps the vote."}</li>`).join("")}</ul>` : ""}
@@ -1343,7 +1346,7 @@ function synCardHtml(c) {
   const lt = `<div class="syn-v"><span class="faint small">Long-term</span> ${ltPill(s.longterm)}<p class="small">${esc(s.longterm_note || (s.longterm || {}).why || "")}</p></div>`;
   const sw = s.shown === "synthesis"
     ? `<div class="syn-v"><span class="faint small">Swing</span> ${synPill(s.swing)} <span class="faint small">${s.differs ? `overrules the vote (${esc(s.vote)})` : `agrees with the vote (${esc(s.vote)})`}</span>
-        ${s.waits_for ? `<p class="small"><b>${esc(s.waits_for)}</b></p>` : ""}<p class="small">${esc(s.why || "")}${s.differs && s.reason ? ` <b>Why it differs:</b> ${esc(s.reason)}` : ""}</p></div>`
+        ${s.waits_for_met ? `<p class="small met"><b>${esc(s.waits_for_met)}</b></p>` : s.waits_for ? `<p class="small"><b>${esc(s.waits_for)}</b></p>` : ""}<p class="small">${esc(s.why || "")}${s.differs && s.reason ? ` <b>Why it differs:</b> ${esc(s.reason)}` : ""}</p></div>`
     : `<div class="syn-v"><span class="faint small">Swing</span> <span class="faint small">${esc(s.why_vote || "")} The rule vote below stands.</span></div>`;
   return `<div class="syn-card"><div class="syn-two">${lt}${sw}</div><p class="faint small">${esc(s.label)}. Risk vetoes and the earnings cap apply to the swing call only.</p></div>`;
 }
@@ -1356,6 +1359,9 @@ const ltLabel = (lt) => (!lt ? "—" : lt.verdict === "Buy below" && lt.level !=
   : lt.verdict === "Not judged" && lt.lean ? `Leans ${lt.lean}` : lt.verdict);
 /* The reason as a tooltip where the badge alone can't say it (no buy level: what each value measure says). */
 const ltBadge = (lt) => vBadge(ltLabel(lt), (lt || {}).verdict, lt && lt.reads ? lt.why : null);       // neutral colour: a lean is not a verdict
+/* The one resolved long-term call (fr/verdict.py), with the value rule underneath only when it disagrees. */
+const resBadge = (r) => { const R = (r.resolved || {}).longterm; if (!R) return ltBadge(r.longterm);
+  return vBadge(R.label, R.key, `From the ${R.source}`) + (R.rule ? `<div class="faint small">Value rule: ${esc(R.rule)}</div>` : ""); };
 /* Data check (fr/integrity.py): nothing when the data passed; a mark with the reasons as its tooltip otherwise. */
 const chkMark = (c) => (!c || !["warn", "fail"].includes(c.status) ? "" :
   ` <span class="vb vb-${c.status === "fail" ? "bad" : "warn"}" title="${esc([...(c.issues || []), ...(c.warnings || [])].join("; "))}">${esc(c.text || (c.status === "fail" ? "Data issue" : "Data note"))}</span>`);
@@ -1403,14 +1409,13 @@ function boardHtml(rows) {
   return `<div class="tbl-wrap board-tbl"><table class="sortable vtable"><thead><tr><th>Stock</th><th class="num">Price</th><th class="num">Day</th><th>1 Month</th><th>Long-Term</th><th>To Buy-Below</th><th>Swing</th><th>Trigger</th><th>Earnings</th></tr></thead><tbody>
     ${rows.map((r) => `<tr data-open="${esc(r.ticker)}" tabindex="0"><td><b class="tk">${esc(r.ticker)}</b>${r.veto ? ` <span class="vb vb-bad" title="${esc(r.veto.join("; "))}">Veto</span>` : ""}</td>
       <td class="num">${qPrice(r)}</td><td class="num ${dirCls(r.day_pct)}" data-v="${r.day_pct ?? -999}" title="${esc((r.quote || {}).vs || "")}">${pct(r.day_pct)}</td><td>${spark(r.spark, 96, 26)}</td>
-      <td data-v="${esc(ltLabel(r.longterm))}">${ltBadge(r.longterm)}${chkMark(r.check)}</td><td data-v="${r.dist_to_buy_pct ?? 999}">${distBar(r)}</td>
+      <td data-v="${esc(((r.resolved || {}).longterm || {}).label || ltLabel(r.longterm))}">${resBadge(r)}${chkMark(r.check)}</td><td data-v="${r.dist_to_buy_pct ?? 999}">${distBar(r)}</td>
       <td data-v="${esc(r.swing)}">${vBadge(r.swing)}</td><td class="trig">${r.trigger_met ? `<span class="met">${esc(r.trigger_met)}</span>` : esc((r.trigger || "").replace(/^Wait for /, "").replace(/\.$/, "")) || "—"}</td><td data-v="${esc(r.earnings || "9999")}">${earnChip(r.earnings)}</td></tr>`).join("")}
     </tbody></table></div>
     <div class="board-cards">${rows.map((r) => `<button class="bcard" data-open="${esc(r.ticker)}"><div class="bc-top"><b class="tk">${esc(r.ticker)}</b><span class="num">${qPrice(r, true)}</span><span class="num ${dirCls(r.day_pct)}">${pct(r.day_pct)}</span>${spark(r.spark, 84, 24)}</div>
-      <div class="bc-badges"><div><span class="bc-l">Long-term</span>${ltBadge(r.longterm)}</div><div><span class="bc-l">Swing</span>${vBadge(r.swing)}</div></div>
+      <div class="bc-badges"><div><span class="bc-l">Long-term</span>${resBadge(r)}</div><div><span class="bc-l">Swing</span>${vBadge(r.swing)}</div></div>
       ${(r.check || {}).text ? `<div class="bc-chk ${r.check.status === "fail" ? "down" : ""}">${esc(r.check.text)}</div>` : ""}
-      ${r.trigger || r.earnings ? `<div class="bc-trig">${r.trigger_met ? `<span class="met">${esc(r.trigger_met)}</span>` : r.trigger ? esc(r.trigger.replace(/\.$/, "")) : ""}${r.earnings ? ` ${earnChip(r.earnings)}` : ""}</div>` : ""}
-      ${anDiffer(r)}</button>`).join("")}</div>`;
+      ${r.trigger || r.earnings ? `<div class="bc-trig">${r.trigger_met ? `<span class="met">${esc(r.trigger_met)}</span>` : r.trigger ? esc(r.trigger.replace(/\.$/, "")) : ""}${r.earnings ? ` ${earnChip(r.earnings)}` : ""}</div>` : ""}</button>`).join("")}</div>`;
 }
 function wireOpen(root) {
   root.querySelectorAll("[data-open]").forEach((x) => {
@@ -1481,7 +1486,8 @@ function analystListHtml(A) {
     <ul class="db-list">${notes.map((n) => { const N = n.note || {}, S = N.summary || {}, mk = n.ticker === "MARKET";
       return `<li class="db-item"><div class="db-h">${mk ? `<b>Market</b>` : `<button type="button" class="tm-tk" data-open="${esc(n.ticker)}">${esc(n.ticker)}</button>`}${mk ? "" : anAction(N.decision)}<span class="an-hl">${esc(N.headline || "")}</span></div>
         <p class="db-l"><span class="db-k">Thesis</span>${esc(S.thesis || "")}</p><p class="db-l"><span class="db-k">Decision</span>${esc(S.decision || "")}</p>
-        ${S.act_at ? `<p class="db-l"><span class="db-k">Act at</span><b>${esc(S.act_at)}</b></p>` : ""}</li>`; }).join("")}</ul></section>`;
+        ${S.act_at ? `<p class="db-l"><span class="db-k">Act at</span><b>${esc(S.act_at)}</b></p>` : ""}
+        ${N.what_changed ? `<p class="db-l"><span class="db-k">Vs yesterday</span>${esc(N.what_changed)}</p>` : ""}</li>`; }).join("")}</ul></section>`;
 }
 document.addEventListener("click", (e) => {
   const b = e.target.closest && e.target.closest(".an-list [data-open]");
@@ -1550,6 +1556,23 @@ document.addEventListener("click", (e) => {
   card.dataset.case = b.dataset.case;
   card.querySelectorAll(".rl-tab").forEach((t) => t.setAttribute("aria-selected", String(t === b)));
 });
+/* Morning call (fr/morning.py): the before-the-open calls, graded after the close; scoreboard alongside. */
+function morningCallHtml(R) {
+  const M = R && R.day; if (!M) return "";
+  const W = { buy: "Buy", add: "Add", hold: "Hold", trim: "Trim", avoid: "Avoid", nothing: "Do nothing", "lean in": "Lean in", selective: "Be selective", "stand aside": "Stand aside" };
+  const K = { buy: "Enter", add: "Enter", trim: "Avoid", avoid: "Avoid", hold: "Wait", nothing: "No view" };
+  const G = { right: ["Right", "Enter"], wrong: ["Wrong", "Avoid"], not_triggered: ["Not triggered", "No view"], no_bet: ["No bet", "No view"], no_data: ["Pending", "No view"] };
+  const t = new Date(M.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const trig = (c) => c.trigger ? `${c.trigger.side === "above" ? "at or above" : "at or below"} ${money2(c.trigger.price)}` : "at the open";
+  const S = R.score || {}, mk = M.market || {};
+  return `<section class="rl-card mc-card" aria-label="Morning call"><p class="rl-when">${M.graded ? "Graded after the close" : "Morning call"}, ${esc(fmtDay(M.session_date))}. Written ${esc(t)}${M.late ? ", after the open" : ""}.</p>
+    <h2 class="rl-title">${esc(W[mk.call] || "Morning call")}${mk.grade && G[mk.grade.status] && mk.grade.status !== "no_bet" ? ` ${vBadge(G[mk.grade.status][0], G[mk.grade.status][1])}` : ""}</h2>
+    ${mk.if_then ? `<p class="rl-bl">${esc(mk.if_then)}</p>` : ""}${mk.grade ? `<p class="faint">${esc(mk.grade.why)}</p>` : ""}
+    <div class="tbl-wrap"><table class="rl-tbl"><thead><tr><th>Stock</th><th>Call</th><th>When</th><th>If, then</th><th>${M.graded ? "Result" : ""}</th></tr></thead><tbody>
+    ${M.calls.map((c) => `<tr><th scope="row">${esc(c.t)}</th><td>${vBadge(W[c.call] || c.call, K[c.call])}</td><td>${esc(trig(c))}</td><td style="white-space:normal">${esc(c.if_then || "")}</td>
+      <td style="white-space:normal">${c.grade ? `${vBadge(G[c.grade.status][0], G[c.grade.status][1])} <span class="faint">${esc(c.grade.why)}</span>` : ""}</td></tr>`).join("")}</tbody></table></div>
+    <p class="faint small">Morning calls so far: ${S.bets ? `${S.right} of ${S.bets} graded calls right` : "none graded yet"}${S.judged ? "" : " (too few to judge; 30 needed)"}. Buy/add calls win when they beat QQQ from entry to the close; trim/avoid win when they lag it.</p></section>`;
+}
 /* Late-price label (fr/freshness.py): shown at the top of every page while stored prices are behind the latest close. */
 async function freshBanner(main) {
   try {
@@ -1560,10 +1583,11 @@ async function freshBanner(main) {
 
 async function viewHome(main) {
   main.innerHTML = skel();
-  const [d, AN, RL] = await Promise.all([load("/api/board"), load("/api/analyst").catch(() => null), load("/api/releases").catch(() => null)]);
+  const [d, AN, RL, MC] = await Promise.all([load("/api/board"), load("/api/analyst").catch(() => null), load("/api/releases").catch(() => null), load("/api/morning").catch(() => null)]);
   const M = d.market, rows = d.rows || [];
   const trendBadge = (t) => vBadge(t ? t[0].toUpperCase() + t.slice(1) : "—", t === "uptrend" ? "Enter" : t === "downtrend" ? "Avoid" : "Wait");
   main.innerHTML = `
+  ${morningCallHtml(MC)}
   ${releaseHtml(RL)}
   ${analystListHtml(AN)}
   ${tomorrowHtml(d.tomorrow)}
@@ -1701,9 +1725,13 @@ function stripHtml(d) {
 /* ------------------------------------------------------------------ Record: how the calls did */
 async function viewRecord(main) {
   main.innerHTML = skel();
-  const [sy, k] = await Promise.all([load("/api/synthesis").catch(() => null), load("/api/committee")]);
+  const [sy, k, SB] = await Promise.all([load("/api/synthesis").catch(() => null), load("/api/committee"), load("/api/scoreboard").catch(() => null)]);
   const C = (sy || {}).comparison || { rows: [] }, log = k.log || [];
   main.innerHTML = pageHead("Record", "How each source's calls have done against the benchmark. Calls are written before their window and never edited.") +
+    (SB ? `<h2 class="h3s">Scoreboard</h2><div class="tbl-wrap"><table class="vtable"><thead><tr><th>Kind of call</th><th class="num">Logged</th><th class="num">Graded</th><th class="num">Right</th><th class="num">Vs Benchmark</th><th>Verdict</th></tr></thead><tbody>
+      ${SB.rows.map((b) => `<tr><td><b>${esc(b.name)}</b></td><td class="num">${b.logged}</td><td class="num">${b.graded}</td><td class="num">${b.hit_rate != null ? b.hit_rate + "%" : "—"}</td>
+        <td class="num">${b.edge != null ? (b.edge > 0 ? "+" : "") + b.edge.toFixed(2) + " pts" : "—"}</td><td>${esc(b.verdict)}</td></tr>`).join("")}</tbody></table></div>
+      <p class="faint one">Right = beat the benchmark in the call's direction (QQQ for stocks, SPY for QQQ, cash for the market). Judged from ${SB.min_n} graded calls; fewer prove nothing.</p>` : "") +
     `<div class="rec3">${C.rows.map((r) => `<div class="sct ${r.matured ? (r.hit_rate_pct >= 50 ? "s-good" : "s-bad") : "s-none"}"><span>${esc(r.source)}</span><b class="num">${r.hit_rate_pct != null ? r.hit_rate_pct + "%" : "—"}</b>
       <small class="faint">${r.calls} calls, ${r.matured} matured${r.avg_excess_in_call_direction_pct != null ? `, ${r.avg_excess_in_call_direction_pct > 0 ? "+" : ""}${r.avg_excess_in_call_direction_pct} pts` : ""}</small></div>`).join("")}</div>
     <p class="faint one">Hit rate vs the benchmark once a call matures. Nothing has a proven edge yet; a handful of calls proves nothing.</p>
@@ -1808,7 +1836,7 @@ function stockHeadV3(c, row, sc) {
   return `<section class="sh3" aria-label="Verdicts">
     ${row && row.quote && row.quote.kind === "live" ? `<p class="intra">${money2(row.quote.price)} ${esc(row.quote.label)}, ${pct(row.quote.change_pct)} ${esc(row.quote.vs)}. Not a close: scores and levels use the ${money2(row.price)} close.</p>` : ""}
     ${row && row.analyst && row.analyst.differs ? `<p class="an-differ">${esc(row.analyst.why_differ)}</p>` : ""}
-    ${row ? `<div class="sh3-badges"><div><span class="bc-l">Long-term</span>${ltBadge(row.longterm)}</div><div><span class="bc-l">Swing</span>${vBadge(row.swing)}</div>
+    ${row ? `<div class="sh3-badges"><div><span class="bc-l">Long-term</span>${resBadge(row)}</div><div><span class="bc-l">Swing</span>${vBadge(row.swing)}</div>
       ${row.trigger ? `<div class="sh3-trig"><span class="bc-l">Trigger</span><b>${row.trigger_met ? esc(row.trigger_met) : esc(row.trigger.replace(/^Wait for /, "").replace(/\.$/, ""))}</b></div>` : ""}
       ${row.earnings ? `<div><span class="bc-l">Earnings</span>${earnChip(row.earnings)}</div>` : ""}</div>` : ""}
     ${sc && sc.range ? valueRibbon(sc.range, c.price) : ""}
