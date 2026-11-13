@@ -1,6 +1,6 @@
 # Public manifest: Fundamentalist snapshot
 
-Read-only snapshot, generated 2026-11-13 15:38 UTC. Research, not advice.
+Read-only snapshot, generated 2026-11-13 17:50 UTC. Research, not advice.
 
 ## What is in this site
 
@@ -9,11 +9,11 @@ Read-only snapshot, generated 2026-11-13 15:38 UTC. Research, not advice.
 | `.nojekyll` | 1 | 0 KB |
 | `app.css` | 1 | 107 KB |
 | `app.js` | 1 | 245 KB |
-| `data/` | 22 | 1,538 KB |
+| `data/` | 22 | 1,537 KB |
 | `data/brief/` | 50 | 265 KB |
 | `data/prices/` | 50 | 1,678 KB |
 | `data/report/` | 8 | 113 KB |
-| `data/stock/` | 50 | 1,766 KB |
+| `data/stock/` | 50 | 1,774 KB |
 | `data/ta/` | 12 | 3,015 KB |
 | `fonts/` | 6 | 207 KB |
 | `icons/` | 4 | 9 KB |
