@@ -45,6 +45,7 @@ function staticPath(path) {
   if (u.pathname === "/api/stock") return `data/stock/${t}.json`;
   if (u.pathname === "/api/brief") return `data/brief/${t}.json`;
   if (u.pathname === "/api/ta") return `data/ta/${t}.json`;
+  if (u.pathname === "/api/reportitem") return `data/reportitem/${(u.searchParams.get("id") || "").replace(/[^a-z0-9_-]/gi, "_")}.json`;
   if (u.pathname === "/api/report") return `data/report/${(u.searchParams.get("id") || "").replace(/[^a-z0-9_-]/gi, "")}.json`;
   if (u.pathname.startsWith("/api/prices/")) return `data/prices/${u.pathname.split("/").pop().toUpperCase().replace(/[^A-Z0-9.-]/g, "")}.json`;
   return `data/${u.pathname.replace("/api/", "")}.json`;
@@ -328,30 +329,50 @@ function reportHtml(r, label) {
     ${(r.stocks || []).length ? `<details><summary>Priority stocks: ${r.stocks.map((s) => esc(s.subject)).join(", ")}</summary>${r.stocks.map((s) => `<h4>${esc(s.subject)}</h4>${items(s.items)}`).join("")}<p class="faint">${esc(r.stocks_note || "")}</p></details>` : ""}
     <p class="faint" style="font-size:11px;margin:6px 0 0">Saved ${esc(dateFmt(r.created_at))}. Built by fixed rules from stored records; saved reports are never edited.</p></div>`;
 }
+/* Reports (UX overhaul 2026-11-14, fr/reportlist.py): every saved report in one list with search, date range, type and
+   ticker filters; tap a row to open it in place. Saved reports never change. */
+const RP = { q: "", from: "", to: "", type: "all", t: "all", n: 15 };
+function reportBody(r) {
+  const P = r.payload || {};
+  if (r.src === "rp") return reportHtml(P, "");
+  if (r.src === "syn") return synthesisHtml({ report_id: r.id, asof: r.asof, created_at: r.created_at, source: r.source, payload: P, label: "AI-written judgment over the analysts' findings, not a proven forecast" }, null);
+  if (r.src === "an") return analystNoteHtml({ ticker: r.ticker, asof: r.asof, created_at: r.created_at, note: P });
+  if (r.src === "rel") return releaseHtml({ notes: [{ name: `${String(r.kind || "").toUpperCase()} release`, kind: r.kind, release_date: r.release_date, note: P }] }) || `<p>${esc(P.headline || "")}</p>`;
+  if (r.src === "day") { const M = P.market || {};
+    return `<p><b>${esc(M.headline || "")}</b></p>${(M.watch || []).length ? `<ul>${M.watch.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+      <ul class="rp-stocks">${(P.stocks || []).map((x) => `<li><b>${esc(x.ticker)}</b> ${esc(x.headline || "")}${x.call ? ` <span class="faint">(${esc(x.call)})</span>` : ""}</li>`).join("")}</ul>`; }
+  return `<pre>${esc(JSON.stringify(P, null, 1)).slice(0, 4000)}</pre>`;
+}
 async function viewReports(main) {
   main.innerHTML = skel();
-  const d = await load("/api/reports");
-  let sy = null;
-  try { sy = await load("/api/synthesis"); } catch (e) { sy = null; }
-  const repRow = (r, label) => !r ? `<li class="rp3"><b>${esc(label)}</b><span class="faint">Not generated yet.</span></li>` :
-    `<li class="rp3"><details><summary><b>${esc(label)}</b><span class="faint">${esc(fmtDay(r.report_date || ""))}</span><span class="one">${esc((r.verdict || {}).text || r.headline || "")}</span></summary>${reportHtml(r, label)}</details></li>`;
-  main.innerHTML = pageHead("Reports", "Daily reports and every Committee Conclusion. Open one to read it; saved reports never change.") +
-    `<h2 class="h3s">Latest</h2><ul class="rp3s">${repRow(d.premarket, "Premarket Plan")}${repRow(d.postmarket, "Post-Market Review")}${repRow(d.weekly, "Weekly Outlook")}</ul>` +
-    `${sy ? `<h2 class="h3s">Committee Conclusions</h2><p class="sub">${esc(sy.label)}. One a weekday after the close; saved reports never change.</p>
-    <div class="tbl-wrap"><table><thead><tr><th>Data Date</th><th>Written</th><th>Source</th><th></th></tr></thead><tbody>
-    ${(sy.archive || []).map((a, i) => `<tr><td class="num">${esc(a.asof)}</td><td>${esc((a.created_at || "").slice(0, 16).replace("T", " "))} UTC</td><td>${esc(a.source)}${a.note ? `<div class="faint small">${esc(a.note)}</div>` : ""}</td>
-      <td><button class="btn ghost" data-syn="${i}">Open</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No conclusions yet.</td></tr>`}</tbody></table></div><div id="syn-open"></div>` : ""}
-    <h2 class="h3s">Report Archive</h2><div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Report</th><th></th></tr></thead><tbody>
-    ${(d.archive || []).map((a) => `<tr><td class="num">${esc(a.report_date)}</td><td>${esc({ weekly: "Weekly outlook", premarket: "Premarket plan", postmarket: "Post-market review" }[a.kind])}</td>
-      <td><button class="btn ghost" data-rep="${esc(a.report_id)}">Open</button></td></tr>`).join("") || `<tr><td colspan="3" class="empty">No reports yet.</td></tr>`}</tbody></table></div>
-    <div id="rep-open"></div>`;
-  main.querySelectorAll("[data-syn]").forEach((b) => b.addEventListener("click", () => {
-    const a = sy.archive[+b.dataset.syn]; $("#syn-open").innerHTML = synthesisHtml({ ...a, label: sy.label }, null); $("#syn-open").scrollIntoView();
-  }));
-  main.querySelectorAll("[data-rep]").forEach((b) => b.addEventListener("click", async () => {
-    try { const r = await load(`/api/report?id=${encodeURIComponent(b.dataset.rep)}`); $("#rep-open").innerHTML = reportHtml(r, ""); $("#rep-open").scrollIntoView(); }
-    catch (e) { $("#rep-open").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
-  }));
+  const D = await load("/api/reportlist");
+  const TCLS = { premarket: "neutral", postmarket: "neutral", weekly: "neutral", synthesis: "good", "day-premarket": "warn", "day-recap": "warn", analyst: "neutral", release: "bad" };
+  main.innerHTML = pageHead("Reports", `${D.items.length} saved reports. Search, filter, and tap one to read it. ${D.label}`) + `
+    <div class="rp-filters" role="search">
+      <label class="rp-q"><span class="sr-only">Search reports</span><input type="search" id="rp-q" placeholder="Search titles and summaries" value="${esc(RP.q)}"></label>
+      <label>From <input type="date" id="rp-from" value="${esc(RP.from)}"></label><label>To <input type="date" id="rp-to" value="${esc(RP.to)}"></label>
+      <label>Type <select id="rp-type"><option value="all">All types</option>${D.types.map((t) => `<option value="${esc(t.type)}"${RP.type === t.type ? " selected" : ""}>${esc(t.label)} (${t.n})</option>`).join("")}</select></label>
+      <label>Ticker <select id="rp-t"><option value="all">All tickers</option>${D.tickers.map((t) => `<option${RP.t === t ? " selected" : ""}>${esc(t)}</option>`).join("")}</select></label>
+    </div><p class="st-count" id="rp-count"></p><div class="sp-acc" id="rp-list"></div><div id="rp-more" class="rp-morebox"></div>`;
+  const list = main.querySelector("#rp-list");
+  const draw = () => {
+    const q = RP.q.trim().toLowerCase();
+    const xs = D.items.filter((x) => (!q || (x.title + " " + x.summary + " " + x.tickers.join(" ")).toLowerCase().includes(q)) && (!RP.from || x.date >= RP.from) && (!RP.to || x.date <= RP.to)
+      && (RP.type === "all" || x.type === RP.type) && (RP.t === "all" || x.tickers.includes(RP.t)));
+    main.querySelector("#rp-count").textContent = `${xs.length} of ${D.items.length} reports`;
+    list.innerHTML = xs.slice(0, RP.n).map((x) => `<div class="sp-item" data-id="${esc(x.id)}"><button class="sp-btn rp-btn" aria-expanded="false"><span class="rp-date num">${esc(fmtDay(x.date))}</span>
+      <span class="rp-tt"><span class="sp-t">${esc(x.title)}</span> ${h2Pill(x.type_label, TCLS[x.type])}</span><span class="sp-pv">${esc(x.summary)}${x.tickers.length ? ` <span class="faint">· ${esc(x.tickers.slice(0, 6).join(", "))}${x.tickers.length > 6 ? "…" : ""}</span>` : ""}</span>
+      <span class="sp-chev" aria-hidden="true">›</span></button><div class="sp-body"><div><div class="sp-in rp-in"></div></div></div></div>`).join("") || `<p class="h2-empty">No report matches these filters.</p>`;
+    main.querySelector("#rp-more").innerHTML = xs.length > RP.n ? `<button class="st-chip rp-more">Show ${Math.min(15, xs.length - RP.n)} more (${xs.length - RP.n} left)</button>` : "";
+    const mb = main.querySelector(".rp-more"); if (mb) mb.addEventListener("click", () => { RP.n += 15; draw(); });
+    list.querySelectorAll(".sp-item").forEach((it) => { const btn = it.querySelector(".sp-btn"); let done = false;
+      btn.addEventListener("click", async () => { const o = it.classList.toggle("open"); btn.setAttribute("aria-expanded", o);
+        if (o && !done) { done = true; const box = it.querySelector(".rp-in"); box.innerHTML = skel();
+          try { box.innerHTML = reportBody(await load(`/api/reportitem?id=${encodeURIComponent(it.dataset.id)}`)); wireOpen(box); } catch (e) { box.innerHTML = `<div class="err">Could not open this report: ${esc(e.message)}</div>`; } } }); });
+  };
+  const bind = (id, k, ev = "change") => main.querySelector(id).addEventListener(ev, (e) => { RP[k] = e.target.value; RP.n = 15; draw(); });
+  bind("#rp-q", "q", "input"); bind("#rp-from", "from"); bind("#rp-to", "to"); bind("#rp-type", "type"); bind("#rp-t", "t");
+  draw();
 }
 /* Forecast performance (platform Phase 7): honest counts, "too few" until 30 results, proposals never applied. */
 function perfHtml(pf) {
@@ -1003,7 +1024,7 @@ async function openStock(t) {
   if (!t) return;
   rememberOrder(t);
   history.replaceState(null, "", `?open=${encodeURIComponent(t)}${location.hash}`);
-  let c = findCard(t), kn = null, mentor = null, scen = null, extra = {};
+  let c = findCard(t), kn = null, mentor = null, scen = null, extra = {}, pageOf = null;
   if (!c) openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(t)}</span></div><div class="skeleton" style="height:220px;border-radius:10px;margin-top:12px"></div>`);
   try {
     const d = await load(`/api/stock?t=${encodeURIComponent(t)}`);
@@ -1011,14 +1032,70 @@ async function openStock(t) {
       openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(t)}</span></div><p class="muted" style="margin-top:12px">${esc(d.error)}</p>`);
       return;
     }
+    pageOf = d.page && !d.page.error ? d.page : null;
     c = c || d.card; kn = d.keynums; mentor = d.mentor; scen = d.scenarios; extra = { levels: d.levels, moves: d.moves_with, challenge: d.challenge, oc: d.options_check, thesis: d.thesis, daily: d.daily, committee: d.committee, profile: d.profile, monitor: d.monitor, scorecard: d.scorecard, qa: d.qa, analyst: d.analyst };
     if (d.scorecard && d.scorecard.range) (state.scorecards = state.scorecards || {})[t] = d.scorecard.range;
     try { state.board = state.board || await load("/api/board"); } catch (e) { state.board = null; }
   } catch (e) {
     if (!c) { openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(t)}</span></div><div class="err">Could not load this stock: ${esc(e.message)}</div>`); return; }
   }
-  const lv = c.play.levels, f = c.fundamental;
-  openDrawer(`<div class="dh"><span class="tk" id="drawer-title">${esc(c.ticker)}</span><span class="muted">${esc(c.name)}</span></div>
+  const lv = c.play.levels, f = c.fundamental, P = pageOf, PV = (P && P.previews) || {};
+  $("#drawer").classList.toggle("sp-wide", !!P);
+  openDrawer(`${P ? `${spTop(P)}
+    <section class="sp-sec" aria-label="Deeper research"><div class="sp-sh"><h3 class="sp-eb">Deeper research</h3><span class="sp-src">Open only what you need</span></div>
+    <div class="sp-acc">
+    ${spItem("Fundamentals", PV.fundamentals, `${asofHtml(c, kn)}
+    <section class="verdict-box" aria-label="Business"><div class="biz">${gradeBadge(f)} <span class="hl">${esc(f.headline)}</span></div>
+      ${c.todo ? `<p class="todo-line"><b>What to do:</b> ${esc(c.todo)}</p>` : ""}
+      <p class="faint" style="font-size:12px">Default is no action: nothing here has a proven edge.</p></section>
+    <div class="todo-big"><div class="biz">${gradeBadge(f)} <span class="hl">${esc(f.headline)}</span></div>
+      <div class="blk" style="margin-top:6px">Short-term label: ${esc(c.category)} · Signal agreement: ${esc(c.signal_agreement)}</div>
+      ${c.disagrees ? `<div class="disagree" title="The largest disagreement between this stock's score components. Information only; it does not change the verdict."><b>What disagrees:</b> ${esc(c.disagrees.text)}</div>` : ""}</div>
+    <section class="sec plain" aria-label="The business in plain English"><h3>The business in plain English</h3>
+      <dl>
+        <dt>${f.kind === "etf" ? "What it is" : "Health"} ${f.grade ? `<span class="faint">(grade ${esc(f.grade)})</span>` : ""}</dt><dd>${TAG(f.tags && f.tags.health)} ${gloss(f.health)}</dd>
+        <dt>Price</dt><dd>${TAG(f.tags && f.tags.price_text)} ${gloss(f.price_text)}</dd>
+        <dt>What's driving it</dt><dd>${TAG(f.tags && f.tags.drivers)} ${f.drivers.map(gloss).join(" ")}</dd>
+        ${f.news.length ? `<dt>What the recent news means</dt><dd>${TAG(f.tags && f.tags.news)} ${f.news.map(gloss).join(" ")}</dd>` : ""}
+        ${c.attention ? `<dt>Public attention</dt><dd>${TAG("INFERENCE")} ${esc(c.attention.text)} <span class="faint">Display only: never changes the scores or verdict.</span></dd>` : ""}
+        ${c.reddit ? `<dt>Reddit buzz</dt><dd>${TAG("INFERENCE")} ${esc(c.reddit.text)} <span class="faint">Display only: Reddit never changes the scores or verdict.</span></dd>` : ""}
+        ${(c.news_impact || []).length ? `<dt>News impact</dt><dd><ul class="impact">${c.news_impact.map((x) => `<li>${TAG("INFERENCE")} ${gloss(x)}</li>`).join("")}</ul></dd>` : ""}
+        <dt>Our take (6–18 months)</dt><dd class="take">${TAG(f.tags && f.tags.take)} ${gloss(f.take)}</dd>
+      </dl></section>
+    ${(c.deeper || []).length ? `<section class="sec deeper" aria-label="Deeper fundamentals"><h3>Deeper fundamentals</h3>
+      <p class="faint" style="font-size:12px">Extra checks from the company's filings. Information only — they don't change the grade, scores or verdict.</p>
+      <dl>${c.deeper.map((d) => `<dt>${esc(d.title)}</dt><dd>${TAG(d.tag)} ${d.flags ? `<ul class="impact">${d.flags.map((x) => `<li>${gloss(x)}</li>`).join("")}</ul>` : gloss(d.text)}</dd>`).join("")}</dl></section>` : ""}
+    ${profileHtml(extra.profile, c)}`)}
+    ${spItem("Financial performance", PV.financials, `${keyNumbersHtml(kn) + (kn && kn.story ? `<section class="story" aria-label="Earnings story"><h3>Earnings story</h3><p>${esc(kn.story)} ${TAG("INFERENCE")}</p></section>` : "")}${monitorHtml(extra.monitor)}`)}
+    ${spItem("Valuation", PV.valuation, `${thesisHtml(extra.thesis)}`)}
+    ${spItem("Technicals and chart", PV.technicals, `<div id="chart-box"></div><div id="ta-read-slot"></div>${dailyHtml(extra.daily)}
+    <section class="sec timing" aria-label="Timing"><h3>Timing (next 2–3 weeks) · ${esc(c.timing.label)}</h3>
+      ${c.window ? `<p class="muted" title="The thesis window names the horizon that matters for this stock right now. It does not change the fundamental (6–18 month) or swing (3–20 day) score horizons.">Thesis window: <b>${esc(c.window.window_label)}</b> · driver: ${esc(c.window.driver)} · confidence ${esc(c.window.confidence)} <span class="faint">(rule ${esc(c.window.rule)}; ${esc(c.window.source)})</span></p>` : ""}
+      <p>${TAG(c.timing.tag)} ${gloss(c.timing.text)}</p>
+      ${lv ? `<h3 style="margin-top:10px">Levels that would invalidate or confirm the thesis</h3><div class="kv"><div><span>Buy zone</span><b class="num">${money(lv.entry_low)}–${money(lv.entry_high)}</b></div><div><span>Exit if below</span><b class="num">${money(lv.invalidation)}</b></div>
+        <div><span>First target</span><b class="num">${money(lv.target1)}</b></div><div><span>Gain vs risk</span><b class="num">${lv.risk_reward ?? "—"}×</b></div></div>` : ""}
+      
+      <details class="more"><summary>More timing detail</summary>
+        <p class="muted">Short-term label: ${esc(c.category)}. ${c.blocker ? "Blocker: " + gloss(c.blocker) : ""}</p>
+        <p>${gloss(c.play.summary)}</p>
+        <p><b>Options</b><br>${gloss(c.options.text)}</p>
+        <p><b>Watch for</b></p><ul>${c.watch.map((x, i) => `<li>${TAG((c.watch_tags || [])[i])} ${gloss(x)}</li>`).join("")}</ul>
+        <p class="muted">Scores: ${c.kind === "etf" ? "market fund (no company score)" : `business ${c.fscore == null ? "—" : Math.round(c.fscore)}/100, timing ${c.sscore == null ? "—" : Math.round(c.sscore)}/100`}.</p>
+      </details></section>
+`, "tech")}
+    ${spItem("How the analysts voted", PV.voted, `<p class="sp-explain">Each analyst's view is an input; the one verdict at the top already weighs them. The value check is the fixed rule over the value range and business quality.</p>
+    ${stockHeadV3(c, boardRow(c.ticker), extra.scorecard)}${qaHtml(extra.qa)}${committeeCallHtml(extra.committee, extra.thesis)}
+    <h3 class="sp-h">Mentor: pros, cons and questions</h3><p class="sp-explain">Mentor lists the strongest points for and against, from the app's data.</p>${mentorHtml(c.ticker, mentor)}
+    <h3 class="sp-h">Options check</h3>${optionsCheckHtml(extra.oc)}`)}
+    ${spItem("Scenarios and the case against", PV.scenarios, `${scenariosHtml(scen)}
+    <h3 class="sp-h">Challenge: the case against</h3><p class="sp-explain">Challenge argues against the current call, so its weak points are visible.</p>${challengeHtml(extra.challenge)}`)}
+    ${spItem("Macro exposure and key levels", PV.macro, `${tiesHtml(extra)}`)}
+    ${spItem("News and catalysts", PV.news, `${mattersHtml(c.impact)}${briefSlot}
+    ${(c.impact && c.impact.rest.length) ? `<div class="sec"><h3>Smaller findings</h3><ul class="impact">${c.impact.rest.map((i) => `<li title="What would change this: ${esc(i.change)}">${itemHead(i)} ${esc(i.so_what)}</li>`).join("")}</ul></div>` : ""}
+    <div class="sec"><h3>Data quality · ${esc(c.quality.level)}</h3><p class="muted">${c.quality.notes.length ? esc(c.quality.notes.join("; ")) : "Prices and filings are current."} Prices use completed trading days only (last close ${esc(c.price_date)}).</p></div>
+`)}
+    ${spItem("Analyst note history", PV.note, `${analystNoteHtml(extra.analyst)}`)}
+    </div></section>` : `<div class="dh"><span class="tk" id="drawer-title">${esc(c.ticker)}</span><span class="muted">${esc(c.name)}</span></div>
     <div class="dh"><span class="px num">${money(c.price)}</span><span class="num ${dirCls(c.change_1d)}">${pct(c.change_1d)} last session</span></div>
     ${stockHeadV3(c, boardRow(c.ticker), extra.scorecard)}
     <div id="chart-box"></div>
@@ -1077,14 +1154,87 @@ async function openStock(t) {
       </details></section>
     <div class="sec"><h3>Data quality · ${esc(c.quality.level)}</h3><p class="muted">${c.quality.notes.length ? esc(c.quality.notes.join("; ")) : "Prices and filings are current."} Prices use completed trading days only (last close ${esc(c.price_date)}).</p></div>
     ${(c.impact && c.impact.rest.length) ? `<div class="sec"><h3>Smaller findings</h3><ul class="impact">${c.impact.rest.map((i) => `<li title="What would change this: ${esc(i.change)}">${itemHead(i)} ${esc(i.so_what)}</li>`).join("")}</ul></div>` : ""}
-    </details>`);
+    </details>`}`);
   fillBrief(c.ticker);
+  const drawStockChart = () => {
   const box = $("#chart-box"), x = (extra.daily && extra.daily.expect) || {};
   const extraLv = (x.above || []).concat(x.below || []).map((l) => ({ name: l.label, price: l.price, explain: l.explain }));
   taChart(box, c.ticker, extraLv).then((tc) => {
     if (!tc) { drawChart(c.ticker, lv, extra.daily); return; }
     const slot = $("#ta-read-slot"); if (slot) { slot.innerHTML = taReadHtml(tc.a); slot.querySelectorAll("[data-ref]").forEach((b) => { b.addEventListener("click", () => tc.focus(b.dataset.ref)); b.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); tc.focus(b.dataset.ref); } }); }); }
   });
+  };
+  if (!P) drawStockChart();
+  else wireSpAcc($("#drawer-body"), { tech: drawStockChart });
+}
+
+/* Stock page (UX overhaul 2026-11-14, fr/stockpage.py): one verdict per question at the top, a level ladder, four short
+   lists, then "Deeper research": nine sections that hold everything the old drawer showed, each with a one-line preview. */
+const SP_KEY = { Enter: "good", Wait: "warn", Avoid: "bad" };
+function spItem(title, preview, body, key) {
+  const id = "sp-" + title.toLowerCase().replace(/[^a-z]+/g, "-");
+  return `<div class="sp-item"${key ? ` data-k="${key}"` : ""}><button class="sp-btn" aria-expanded="false" aria-controls="${id}"><span class="sp-t">${esc(title)}</span>
+    <span class="sp-pv">${esc(preview || "")}</span><span class="sp-chev" aria-hidden="true">›</span></button>
+    <div class="sp-body" id="${id}" role="region" aria-label="${esc(title)}"><div><div class="sp-in">${body}</div></div></div></div>`;
+}
+function wireSpAcc(root, onOpen) {
+  root.querySelectorAll(".sp-item").forEach((it) => {
+    const b = it.querySelector(".sp-btn"); let done = false;
+    b.addEventListener("click", () => {
+      const o = it.classList.toggle("open"); b.setAttribute("aria-expanded", o);
+      if (o && !done && it.dataset.k && onOpen[it.dataset.k]) { done = true; setTimeout(onOpen[it.dataset.k], 60); }
+    });
+  });
+}
+function spLadder(L) {
+  const items = (L.items || []).slice(), now = L.now, fv = L.fair_value;
+  if (!items.length && !fv) return "";
+  const KC = { buy: "var(--good)", stop: "var(--bad)", support: "var(--muted)", resistance: "var(--muted)", entry: "var(--warn-v)", target: "var(--accent)", upside: "var(--accent)" };
+  // the scale covers the levels and today's price; the fair-value band is clipped to it (an arrow marks a clipped end)
+  const ps = items.map((x) => x.price).concat([now]);
+  let lo = Math.min(...ps), hi = Math.max(...ps); const pad = (hi - lo) * 0.08 || hi * 0.05; lo -= pad; hi += pad;
+  const W = 1000, X = (p) => 30 + ((Math.min(Math.max(p, lo), hi) - lo) / (hi - lo)) * (W - 60), nx0 = X(now);
+  const above = [{ y: 44, end: -1e9 }], below = [];
+  const laneFor = (cx, w) => {
+    const ok = (l) => l.end < cx - w / 2;
+    let l = above.find(ok) || below.find(ok);
+    if (!l) { l = { y: 106 + below.length * 16, end: -1e9 }; below.push(l); }
+    l.end = cx + w / 2; return l;
+  };
+  const marks = items.slice().sort((a, b) => a.price - b.price).map((x) => { const x0 = X(x.price), col = KC[x.kind] || "var(--muted)";
+    const txt = `${x.label.replace(/ \(.*\)$/, "")} ${money2(x.price)}`, w = txt.length * 7.4 + 12;
+    const cx = Math.min(Math.max(x0, 30 + w / 2), W - 30 - w / 2), lane = laneFor(cx, w), up = lane.y < 62;
+    return `<g><title>${esc(x.label)}: ${money2(x.price)}${x.note ? " · " + esc(x.note) : ""}</title><line x1="${x0.toFixed(1)}" y1="62" x2="${x0.toFixed(1)}" y2="${up ? 50 : 76}" stroke="${col}" stroke-width="2"/>
+      <text x="${cx.toFixed(1)}" y="${lane.y}" text-anchor="middle" font-size="13" fill="${col}">${esc(txt)}</text></g>`; }).join("");
+  const bottom = 106 + below.length * 16;
+  let band = "";
+  if (fv) {
+    const inside = fv.high > lo && fv.low < hi, x1 = X(fv.low), x2 = X(fv.high);
+    const lab = `Fair value ${money2(fv.low)}–${money2(fv.high)}${!inside ? (fv.low >= hi ? " (above this range)" : " (below this range)") : ""}`;
+    band = `<g><title>Fair value range ${money2(fv.low)}–${money2(fv.high)}</title>${inside ? `<rect x="${x1.toFixed(1)}" y="80" width="${Math.max(4, x2 - x1).toFixed(1)}" height="8" rx="3" fill="var(--accent-soft)"/>` : ""}
+      <text x="${(inside ? Math.min(Math.max(x1, 30), W - 260) : 30).toFixed(1)}" y="${bottom}" font-size="13" fill="var(--accent)">${fv.low < lo && inside ? "← " : ""}${esc(lab)}${fv.high > hi && inside ? " →" : ""}</text></g>`;
+  }
+  const nx = nx0.toFixed(1), H = bottom + (fv ? 10 : -6);
+  const svg = `<svg class="sp-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Price levels from ${money2(lo)} to ${money2(hi)}">
+    <line x1="30" y1="62" x2="${W - 30}" y2="62" stroke="var(--line2)" stroke-width="2"/>${band}${marks}
+    <g><title>Now ${money2(now)}</title><circle cx="${nx}" cy="62" r="8" fill="var(--text)"/><text x="${nx}" y="18" text-anchor="middle" font-size="14" font-weight="700" fill="var(--text)">Now ${money2(now)}</text></g></svg>`;
+  const rows = items.concat([{ kind: "now", label: "Now", price: now }]).sort((a, b) => b.price - a.price)
+    .map((x) => `<li class="${x.kind === "now" ? "sp-now" : ""}"><i style="background:${x.kind === "now" ? "var(--text)" : KC[x.kind] || "var(--muted)"}"></i><span>${esc(x.label)}${x.note ? `<span class="sp-lnote">${esc(x.note)}</span>` : ""}</span><b class="num">${money2(x.price)}</b></li>`).join("");
+  const st = (L.stats || []).map((x) => `<div><span class="sp-k">${esc(x.k)}</span><b class="num ${typeof x.v === "number" ? dirCls(x.v) : ""}">${x.v == null ? "—" : typeof x.v === "number" ? pct(x.v, 1) : esc(x.v)}</b></div>`).join("");
+  return `<section class="sp-sec" aria-label="Key levels"><h3 class="sp-eb">Key levels</h3><div class="sp-panel sp-ladder">${svg}<ol class="sp-lrows">${rows}</ol>
+    <div class="sp-stats">${st}</div>${L.note ? `<p class="sp-src">${esc(L.note)} A dash means that level is not set.</p>` : ""}</div></section>`;
+}
+function spTop(P) {
+  const H = P.header || {}, T = P.thesis || {}, C = P.cases || {};
+  const list = (t, cls, xs) => (xs && xs.length ? `<div class="sp-panel sp-case"><span class="h2-pill h2-${cls}">${esc(t)}</span><ul>${xs.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : "");
+  return `<div class="sp-head"><div><div class="sp-crumb">Stocks › ${esc(H.t)}</div><h2 class="sp-title" id="drawer-title">${esc(H.t)}<span>${esc(H.name)}${H.sector ? " · " + esc(H.sector) : ""}</span></h2></div>
+    <div class="sp-px"><div class="num sp-pv1">${money2(H.price)} <span class="${dirCls(H.change_pct)}">${pct(H.change_pct)}</span></div><div class="sp-lbl">${esc(H.label)}${H.vs ? " · change " + esc(H.vs) : ""}</div></div></div>
+  <section class="sp-dec" aria-label="Decision">${(P.decisions || []).map((d) => `<div class="sp-cell"><span class="sp-eb">${esc(d.k)}</span>
+    <span class="sp-big sp-${SP_KEY[d.key] || "neutral"}">${esc(d.v)}</span><span class="sp-how">${esc(d.how || "")}</span>${d.note ? `<span class="sp-note">${esc(d.note)}</span>` : ""}</div>`).join("")}</section>
+  <div class="sp-two"><section class="sp-panel sp-thesis" aria-label="Thesis"><h3 class="sp-eb">Thesis${T.asof ? " · " + esc(fmtDay(T.asof)) : ""}</h3><p>${esc(T.text || "No analyst note yet for this stock.")}</p></section>
+    <section class="sp-panel" aria-label="Key facts"><dl class="sp-facts">${(T.facts || []).map((f) => `<div><dt>${esc(f.k)}</dt><dd>${esc(f.v)}</dd></div>`).join("")}</dl></section></div>
+  ${spLadder(P.levels || {})}
+  <section class="sp-cases" aria-label="Bull and bear">${list("Bull case", "good", C.bull)}${list("Bear case", "bad", C.bear)}${list("Main risks", "warn", C.risks)}${list("What would change the call", "neutral", C.change)}</section>`;
 }
 
 function openEarnings(r) {
@@ -1581,29 +1731,68 @@ async function freshBanner(main) {
   } catch (e) { /* the label is optional */ }
 }
 
+/* Home (UX overhaul 2026-11-14, fr/homepage.py): what matters and what to do, in about 1.5 screens.
+   KPI strip -> thesis + what matters -> best opportunities -> morning call in one line -> coming up -> bigger picture.
+   Every number names its scope and date; a missing input leaves its cell empty. */
+const H2_LVL = { High: "bad", Medium: "warn", Low: "neutral" };
+const h2Pill = (txt, cls) => `<span class="h2-pill h2-${cls || "neutral"}">${esc(txt)}</span>`;
+const LT_CLS = (k) => (k === "Enter" ? "good" : k === "Avoid" ? "bad" : k === "Wait" ? "warn" : "neutral");
+const SW_CLS = (l) => (l === "Enter" ? "good" : l === "Avoid" ? "bad" : l === "Wait" ? "warn" : "neutral");
+const MC_CLS = (c) => (["buy", "add"].includes(c) ? "good" : ["trim", "avoid"].includes(c) ? "bad" : "neutral");
 async function viewHome(main) {
+  main.innerHTML = skel();
+  const H = await load("/api/homepage");
+  const T = H.thesis || {}, O = H.opportunities || { rows: [] }, MC = H.morning, C = H.coming_up || [];
+  const kpi = (k) => `<div class="h2-kpi"><span class="h2-k">${esc(k.k)}</span><span class="h2-v num">${esc(k.v)}</span>
+    <span class="h2-d ${k.dir != null ? dirCls(k.dir) : ""}"${k.checks ? ` title="${esc("Passing: " + k.checks.join("; "))}"` : ""}>${esc(k.d || "")}</span></div>`;
+  const opRow = (r) => `<tr data-open="${esc(r.t)}" tabindex="0"><td><b class="tk">${esc(r.t)}</b><div class="h2-nm">${esc(r.name)}</div></td>
+    <td>${h2Pill(r.longterm, LT_CLS(r.lt_key))}</td><td>${h2Pill(r.swing, SW_CLS(r.swing))}</td>
+    <td class="num">${money2(r.price)}<div class="h2-lbl">${esc(r.price_label)}</div></td><td class="h2-why">${esc(r.why || "")}</td>
+    <td class="num">${esc(r.enter || "—")}</td><td class="num">${esc(r.wrong_if || "—")}</td><td>${esc(r.catalyst || "—")}</td></tr>`;
+  const opCard = (r) => `<button class="h2-oc" data-open="${esc(r.t)}"><span class="h2-oc1"><span><b class="tk">${esc(r.t)}</b> <span class="h2-nm">${esc(r.name)}</span></span>
+    <span class="num">${money2(r.price)} <span class="h2-lbl">${esc(r.price_label)}</span></span></span>
+    <span class="h2-pills">${h2Pill("Long-term: " + r.longterm, LT_CLS(r.lt_key))}${h2Pill("Swing: " + r.swing, SW_CLS(r.swing))}</span>
+    <span class="h2-why">${esc(r.why || "")}</span>
+    <span class="h2-lv"><span><span class="h2-k">Enter</span> ${esc(r.enter || "—")}</span><span><span class="h2-k">Wrong if</span> ${esc(r.wrong_if || "—")}</span><span><span class="h2-k">Catalyst</span> ${esc(r.catalyst || "—")}</span></span></button>`;
+  main.innerHTML = `<div class="h2">
+  <section class="h2-kpis" aria-label="Market at a glance">${(H.kpis || []).map(kpi).join("")}</section>
+  <div class="h2-two">
+    <section class="h2-panel h2-thesis" aria-label="Market thesis"><h2 class="h2-eb">Market thesis · ${esc(fmtDay(T.date))}</h2>
+      ${T.conclusion ? `<p class="h2-call">${esc(T.conclusion)}</p>` : ""}
+      <dl class="h2-rows">${(T.rows || []).map((r) => `<div><dt>${esc(r.k)}</dt><dd title="${esc(r.v)}">${esc(r.v)}</dd></div>`).join("")}</dl>
+      <p class="h2-src">From the ${esc(T.source || "evening report")}. AI-written judgment, not a forecast.</p></section>
+    <section class="h2-panel" aria-label="What matters, ranked"><h2 class="h2-eb h2-pad">What matters, ranked</h2>
+      <ol class="h2-matters">${(H.matters || []).map((m) => `<li><div class="h2-mt">${esc(m.title)} ${h2Pill(m.level, H2_LVL[m.level])}</div><div class="h2-mi" title="${esc(m.impact)}">${esc(m.impact)}</div></li>`).join("") || `<li class="faint">Nothing ranked for the next week.</li>`}</ol>
+      <p class="h2-src h2-pad">Ranked by the app's own scores: release days and main-name earnings within a week are High; news by its importance score.</p></section>
+  </div>
+  <section aria-label="Best opportunities now"><div class="h2-sh"><h2 class="h2-eb">Best opportunities now · ${O.rows.length} of ${O.covered} covered</h2><a href="#/stocks">All stocks →</a></div>
+    <div class="h2-panel">${O.rows.length ? `<table class="h2-tbl"><thead><tr><th>Stock</th><th>Long-term</th><th>Swing</th><th>Price</th><th>Why now</th><th>Enter at</th><th>Wrong if</th><th>Catalyst</th></tr></thead>
+      <tbody>${O.rows.map(opRow).join("")}</tbody></table><div class="h2-ocs">${O.rows.map(opCard).join("")}</div>`
+      : `<p class="h2-empty">No covered stock is a buy today, and none is within reach of its buy level.</p>`}
+      <p class="h2-src h2-pad">Shown: ${esc(O.rule || "")}</p></div></section>
+  ${MC ? `<section class="h2-panel h2-mc" aria-label="Morning call"><h2 class="h2-eb">Morning call · ${esc(fmtDay(MC.session_date))}${MC.late ? " (written after the open)" : ""}</h2>
+    <span class="h2-lead">${MC.actions} action${MC.actions === 1 ? "" : "s"}, ${MC.no_action} no-action</span>
+    <span class="h2-chips">${MC.chips.map((c) => `<button class="h2-pill h2-${MC_CLS(c.call)}" data-open="${esc(c.t)}">${esc(c.call[0].toUpperCase() + c.call.slice(1))} ${esc(c.t)}${c.status === "right" ? " ✓" : c.status === "wrong" ? " ✗" : ""}</button>`).join("")}</span>
+    <a href="#/today" class="h2-more">See all ${MC.total} →</a></section>` : ""}
+  <section aria-label="Coming up"><div class="h2-sh"><h2 class="h2-eb">Coming up</h2><a href="#/market?tab=earnings">All events →</a></div>
+    <ol class="h2-panel h2-tl">${C.map((e) => `<li><span class="h2-when">${esc(e.when)}</span><b class="h2-what">${esc(e.title)}</b>${h2Pill(e.level, H2_LVL[e.level])}
+      <span class="h2-mi">${esc(e.impact || "")}${e.tickers.length ? ` <span class="h2-tks">${esc(e.tickers.join(", "))}</span>` : ""}</span></li>`).join("") || `<li class="faint">Nothing scheduled in the next 30 days.</li>`}</ol></section>
+  ${H.bigger_picture ? `<section class="h2-panel h2-big" aria-label="Bigger picture"><p><b>Bigger picture:</b> ${esc(H.bigger_picture)}</p><a href="#/market">Market page →</a></section>` : ""}
+  </div>`;
+  wireOpen(main);
+}
+
+/* The old Home's sections (2026-11-14 UX overhaul moved them off Home): Analyst View, Tomorrow, Tonight's verdict,
+   What to watch, Headlines and the full briefing. Kept whole, opened from the Market page. */
+async function viewHomeMoved(main) {
   main.innerHTML = skel();
   const [d, AN, RL, MC] = await Promise.all([load("/api/board"), load("/api/analyst").catch(() => null), load("/api/releases").catch(() => null), load("/api/morning").catch(() => null)]);
   const M = d.market, rows = d.rows || [];
   const trendBadge = (t) => vBadge(t ? t[0].toUpperCase() + t.slice(1) : "—", t === "uptrend" ? "Enter" : t === "downtrend" ? "Avoid" : "Wait");
   main.innerHTML = `
-  ${morningCallHtml(MC)}
-  ${releaseHtml(RL)}
   ${analystListHtml(AN)}
   ${tomorrowHtml(d.tomorrow)}
-  <section class="mk-strip" aria-label="Market">
-    ${M.indices.map((i) => `<div class="mk-tile"><div class="mk-h"><b>${esc(i.ticker)}</b>${trendBadge(i.trend)}</div>
-      <div class="mk-v"><span class="num">${money2(i.close)}</span><span class="num ${dirCls(i.chg)}">${pct(i.chg)}</span></div>${spark(i.spark, 180, 36)}</div>`).join("")}
-    ${M.vix ? `<div class="mk-tile"><div class="mk-h"><b>Fear (VIX)</b>${vBadge(M.vix.label[0].toUpperCase() + M.vix.label.slice(1), M.vix.label === "calm" || M.vix.label === "normal" ? "Enter" : M.vix.label === "high" ? "Avoid" : "Wait")}</div>
-      <div class="mk-v"><span class="num">${M.vix.value.toFixed(2)}</span><span class="faint">${M.vix.pct != null ? `${M.vix.pct}th pct of year` : ""}</span></div>${vixGauge(M.vix)}</div>` : ""}
-    ${M.breadth != null ? `<div class="mk-tile"><div class="mk-h"><b>Breadth</b>${vBadge(M.breadth >= 60 ? "Broad" : M.breadth >= 40 ? "Mixed" : "Narrow", M.breadth >= 60 ? "Enter" : M.breadth >= 40 ? "Wait" : "Avoid")}</div>
-      <div class="mk-v"><span class="num">${M.breadth}%</span><span class="faint">above 50-day</span></div><div class="br-track"><span style="width:${M.breadth}%"></span></div></div>` : ""}
-  </section>
   ${verdictBlock(d.verdict, d.report)}
-  <section class="board" aria-label="Verdict Board">
-    <div class="board-h"><h2>Verdict Board</h2><span class="faint">Long-term: is it a good business at a good price? Swing: the next few weeks. Data from the ${esc(fmtDay(d.asof))} close.${esc(chkLine(d.data_check))}</span></div>
-    ${boardHtml(rows)}
-  </section>
   <div class="home-two">
     <section class="watch" aria-label="What to watch"><h2>What To Watch</h2><span class="faint">${esc((d.watch || {}).for || "")}</span>
       <ol class="tl2">${((d.watch || {}).items || []).map((i) => { const m = i.kind === "level" && /^([A-Z.]{1,6}) near /.exec(i.what || ""), A = m && ((d.tomorrow || {}).watch_actions || {})[m[1]], R = m && rows.find((r) => r.ticker === m[1]);
@@ -1613,15 +1802,100 @@ async function viewHome(main) {
       <ul class="hl2">${(d.headlines || []).map((h) => `<li><span class="imp imp-${esc(h.impact)}" title="Importance ${h.importance} of 100">${h.importance}</span><span class="hl2-t">${esc(h.headline)}</span><span class="faint hl2-m">${esc(h.tickers.join(", "))}</span></li>`).join("")}</ul></section>
   </div>
   ${lazyFold("Full Briefing: The Committee Conclusion, Decisions, Risks And Notes", null, "briefing")}
-  ${disclosure("Research, not advice. Long-term verdicts follow a fixed rule over the value range and business quality; swing calls are AI-written judgment. Nothing is traded.")}`;
+  `;
   wireOpen(main); enableSort(main); wireLazy(main, { briefing: viewCommand });
 }
 
-/* ------------------------------------------------------------------ Stocks: Focus / All covered / By category */
+/* Stocks (UX overhaul 2026-11-14, fr/stockstable.py): one comparison table. Filters are chips; sort is one select;
+   every row opens the stock page. The coverage lists, recommendation cards and coverage tools stay in folds below. */
+const ST = { view: "lt", verdict: "all", sector: "all", earn: false, conv: false, main: false, sort: "relevance" };
+try { Object.assign(ST, JSON.parse(localStorage.getItem("fr-stocks-filter") || "{}")); } catch (e) { /* per-viewer convenience only */ }
+const wrongLine = (w) => (!w ? "" : w.text ? `<div class="h2-lbl" title="${esc(w.basis)}; untested default">Wrong if ${esc(w.text.replace("Close below", "below"))} <span class="faint">(untested default)</span></div>`
+  : `<div class="h2-lbl">Wrong if: no level stored</div>`);
+const VGROUP = (label, view) => {
+  const l = String(label || "");
+  if (view === "sw") return l === "Enter" ? "buy" : l === "Wait" ? "wait" : l === "Avoid" ? "avoid" : "none";
+  return /^(Buy|Add)/.test(l) ? "buy" : l === "Hold" ? "hold" : l === "Wait" ? "wait" : l === "Avoid" || /expensive/i.test(l) ? "avoid" : "none";
+};
 async function viewStocks3(main) {
-  const v = hashParam("v") || "focus";
   main.innerHTML = skel();
-  const head = pageHead("Stocks", "The 19 focus names, every covered stock, and where each one sits in its research lifecycle.") +
+  const D = await load("/api/stockstable");
+  const match = (r, F) => (F.verdict === "all" || VGROUP(F.view === "sw" ? r.swing : r.lt, F.view) === F.verdict)
+      && (F.sector === "all" || r.sector === F.sector) && (!F.earn || (r.catalyst && r.catalyst.label.startsWith("Earnings") && r.catalyst.days >= 0 && r.catalyst.days <= 14))
+      && (!F.conv || r.conviction === "High") && (!F.main || r.main != null);
+  const countIf = (patch) => D.rows.filter((r) => match(r, { ...ST, ...patch })).length;
+  const draw = () => {
+    try { localStorage.setItem("fr-stocks-filter", JSON.stringify(ST)); } catch (e) { /* ignore */ }
+    let rows = D.rows.filter((r) => match(r, ST));
+    const CONV = { High: 0, Medium: 1, Low: 2 };
+    const by = { relevance: (a, b) => (a.main ?? 99) - (b.main ?? 99) || a.t.localeCompare(b.t), conviction: (a, b) => (CONV[a.conviction] ?? 9) - (CONV[b.conviction] ?? 9) || (a.main ?? 99) - (b.main ?? 99),
+      day: (a, b) => (b.day_pct ?? -99) - (a.day_pct ?? -99), catalyst: (a, b) => ((a.catalyst || {}).days ?? 999) - ((b.catalyst || {}).days ?? 999) };
+    rows = rows.slice().sort(by[ST.sort] || by.relevance);
+    // every chip shows how many stocks it would leave; a chip that would leave none is hidden (unless it is on)
+    const chip = (k, v, label, counted = true) => { const on = String(ST[k]) === String(v), n = counted ? countIf(k === "view" ? { view: v, verdict: "all" } : { [k]: v }) : null;
+      return n === 0 && !on ? "" : `<button class="st-chip" data-k="${k}" data-v="${esc(v)}" aria-pressed="${on}">${esc(label)}${n != null ? ` <span class="st-n">${n}</span>` : ""}</button>`; };
+    const tog = (k, label) => { const n = countIf({ [k]: true }); return n === 0 && !ST[k] ? "" : `<button class="st-chip" data-t="${k}" aria-pressed="${!!ST[k]}">${esc(label)} <span class="st-n">${n}</span></button>`; };
+    const lvl = (l) => (l ? `${esc(l.label)} ${money2(l.price)} <span class="${dirCls(l.dist_pct)}">${l.dist_pct > 0 ? "+" : ""}${l.dist_pct}%</span>` : "—");
+    const sel = (r, which) => (ST.view === which ? " st-on" : "");
+    const lists = ST.view === "sw" ? [["all", "All"], ["buy", "Enter"], ["wait", "Wait"], ["avoid", "Avoid"]] : [["all", "All"], ["buy", "Buy"], ["hold", "Hold"], ["wait", "Wait"], ["avoid", "Avoid"]];
+    main.querySelector("#st-body").innerHTML = `
+      <div class="st-filters" role="group" aria-label="Filters">
+        <span class="st-seg">${chip("view", "lt", "Long-term", false)}${chip("view", "sw", "Swing", false)}</span>
+        <span class="st-grp">${lists.map(([v, n]) => chip("verdict", v, n)).join("")}</span>
+        <span class="st-grp">${tog("main", "Main 12")}${tog("earn", "Earnings in 14 days")}${tog("conv", "High conviction")}</span>
+        <span class="st-grp">${chip("sector", "all", "All sectors")}${D.sectors.map((x) => chip("sector", x, x)).join("")}</span>
+        <label class="st-sort">Sort <select id="st-sort">${[["relevance", "Relevance"], ["conviction", "Conviction"], ["day", "Day %"], ["catalyst", "Next catalyst"]].map(([v, n]) => `<option value="${v}"${ST.sort === v ? " selected" : ""}>${n}</option>`).join("")}</select></label>
+      </div>
+      <p class="st-count">${rows.length} of ${D.rows.length} stocks</p>
+      <div class="h2-panel st-wrap"><table class="st-tbl"><thead><tr><th>Stock</th><th>Price</th><th class="num">Day</th><th class="${sel(0, "lt")}">Long-term</th><th class="${sel(0, "sw")}">Swing</th><th>Conviction</th><th>Next catalyst</th><th>Key level</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr data-open="${esc(r.t)}" tabindex="0"><td><b class="tk">${esc(r.t)}</b><div class="h2-nm">${esc(r.name)}</div></td>
+          <td class="num">${money2(r.price)}<div class="h2-lbl">${esc(r.price_label)}</div></td><td class="num ${dirCls(r.day_pct)}">${pct(r.day_pct)}</td>
+          <td class="${sel(r, "lt")}">${h2Pill(r.lt, LT_CLS(r.lt_key))}</td><td class="${sel(r, "sw")}">${h2Pill(r.swing, SW_CLS(r.swing))}</td>
+          <td>${r.conviction ? esc(r.conviction) : `<span class="faint">—</span>`}</td><td>${r.catalyst ? `${esc(r.catalyst.label)}<div class="h2-lbl">${r.catalyst.days >= 0 ? `in ${r.catalyst.days} day${r.catalyst.days === 1 ? "" : "s"}` : ""}</div>` : `<span class="faint">—</span>`}</td>
+          <td class="num">${lvl(r.level)}${wrongLine(r.wrong_if)}</td></tr>`).join("") || `<tr><td colspan="8" class="faint">No stock matches these filters.</td></tr>`}</tbody></table>
+        <div class="st-cards">${rows.map((r) => `<button class="st-card" data-open="${esc(r.t)}"><span class="st-c1"><b class="tk">${esc(r.t)}</b><span class="num">${money2(r.price)} <span class="${dirCls(r.day_pct)}">${pct(r.day_pct)}</span></span></span>
+          <span class="h2-pills">${h2Pill("Long-term: " + r.lt, LT_CLS(r.lt_key))}${h2Pill("Swing: " + r.swing, SW_CLS(r.swing))}</span>
+          <span class="st-lv">${r.level ? lvl(r.level) : "No key level set"}${wrongLine(r.wrong_if)}</span></button>`).join("") || `<p class="h2-empty">No stock matches these filters.</p>`}</div></div>
+      <p class="h2-src">${esc(D.note)} Key level: the nearest price that would start or change a call. Prices: ${esc((D.rows[0] || {}).price_label || "")}.</p>`;
+    main.querySelectorAll(".st-chip[data-k]").forEach((b) => b.addEventListener("click", () => { ST[b.dataset.k] = b.dataset.v; if (b.dataset.k === "view") ST.verdict = "all"; draw(); }));
+    main.querySelectorAll(".st-chip[data-t]").forEach((b) => b.addEventListener("click", () => { ST[b.dataset.t] = !ST[b.dataset.t]; draw(); }));
+    main.querySelector("#st-sort").addEventListener("change", (e) => { ST.sort = e.target.value; draw(); });
+    wireOpen(main.querySelector("#st-body"));
+  };
+  main.innerHTML = pageHead("Stocks", "Every covered stock in one table. Tap a row for its page.") + `<div id="st-body"></div>
+    ${lazyFold("Coverage List: Research Category, Stage And Analysts", null, "cov")}${lazyFold("Recommendation Cards: Levels, Conviction And Agent Views", null, "recs")}${lazyFold("Manage Coverage: Alerts, Assignments, History And Controls", null, "coverage")}`;
+  draw();
+  wireLazy(main, { cov: (m) => viewStocksLegacy(m, "covered"), recs: viewRecs, coverage: viewCoverage });
+}
+
+/* Ideas (UX overhaul 2026-11-14, fr/ideas.py): opportunities, oversold and discovery in five sections; each stock once,
+   in its highest section. The screens' full detail stays in the folds below. */
+async function viewIdeas(main) {
+  main.innerHTML = skel();
+  const D = await load("/api/ideas");
+  const row = (k, v) => `<div><dt>${esc(k)}</dt><dd>${v ? esc(v) : `<span class="faint">—</span>`}</dd></div>`;
+  const line = (i) => `<div class="sp-item id-row"><button class="sp-btn id-btn" aria-expanded="false"><span class="id-tk"><b class="tk">${esc(i.t)}</b></span>
+      <span class="id-reason">${esc(i.reason || "")}</span>
+      <span class="num id-trig">${i.tp ? `${money2(i.tp)}${i.dist_pct != null ? ` <span class="${dirCls(i.dist_pct)}">${i.dist_pct > 0 ? "+" : ""}${i.dist_pct}%</span>` : ""}` : `<span class="faint">no trigger price</span>`}</span>
+      <span class="id-pills">${h2Pill(i.lt, LT_CLS(i.lt_key))}${h2Pill(i.sw, SW_CLS(i.sw))}</span><span class="sp-chev" aria-hidden="true">›</span></button>
+    <div class="sp-body"><div><div class="sp-in id-in"><p class="id-why"><b>${esc(i.name || i.t)}</b> · ${esc(i.why)}</p>
+      ${i.missing ? `<p class="id-miss"><b>What the market may be missing:</b> ${esc(i.missing)}</p>` : ""}
+      <dl class="id-dl">${row("Trigger", i.trigger)}${row("Invalidation", i.invalidation)}${row("Holding period", i.holding)}${i.risk ? row("Main risk", i.risk) : ""}${row("Conviction", i.conviction)}${row("Source", i.source)}</dl>
+      <button class="h2-pill h2-neutral id-open" data-open="${esc(i.t)}">Open ${esc(i.t)} →</button></div></div></div></div>`;
+  main.innerHTML = pageHead("Ideas", `${D.count} stocks that might become a call, each listed once in its strongest section. Tap a row for the detail. None has a proven edge yet.`) +
+    `<div class="id-head" aria-hidden="true"><span>Stock</span><span>Why it's here</span><span>Trigger · distance</span><span>Long-term · swing</span><span></span></div>` +
+    D.sections.filter((s) => s.items.length).map((s) => `<section class="id-sec" aria-label="${esc(s.title)}"><h2 class="h2-eb id-st" title="${esc(s.rule)}">${esc(s.title)} · ${s.items.length}</h2>
+      <div class="sp-acc">${s.items.map(line).join("")}</div></section>`).join("") +
+    `<p class="h2-src">Empty sections are hidden: ${esc(D.sections.filter((s) => !s.items.length).map((s) => s.title).join(", ") || "none")}. Sections: ${esc(D.sections.map((s) => s.title + " — " + s.rule).join(" "))}</p>` +
+    `${lazyFold(`Oversold Screen: ${D.oversold.worth.length} Worth A Look (Not Judged), ${D.oversold.others} Others`, null, "os")}${lazyFold(`Discovery Screen: ${D.discovery.count || 0} Names, ${D.discovery.new_30d} New In 30 Days`, null, "disc")}${lazyFold("Setup Pipeline Detail", null, "pipe")}${lazyFold("The Old Ideas Table (All Four Sources)", null, "old")}`;
+  wireSpAcc(main, {}); wireOpen(main); wireLazy(main, { os: viewOversold, disc: viewDiscovery, pipe: viewOpps, old: viewIdeasLegacy });
+}
+
+/* ------------------------------------------------------------------ Stocks: Focus / All covered / By category */
+async function viewStocksLegacy(main, vArg) {
+  const v = vArg || hashParam("v") || "focus";
+  main.innerHTML = skel();
+  const head = vArg ? "" : pageHead("Stocks", "The 19 focus names, every covered stock, and where each one sits in its research lifecycle.") +
     segCtl("stocks", "v", [["focus", "Focus"], ["covered", "All Covered"], ["category", "By Category"]], v);
   if (v === "focus") {
     const d = await load("/api/board");
@@ -1653,7 +1927,7 @@ async function viewStocks3(main) {
 }
 
 /* ------------------------------------------------------------------ Ideas: one ranked list, a source chip on each */
-async function viewIdeas(main) {
+async function viewIdeasLegacy(main) {
   main.innerHTML = skel();
   const [k, o, os, dc] = await Promise.all([load("/api/committee"), load("/api/opportunities").catch(() => ({})), load("/api/oversold").catch(() => ({})), load("/api/discovery").catch(() => ({}))]);
   const ideas = [];
@@ -1693,22 +1967,53 @@ async function viewMarket3(main) {
       ${lazyFold("Earnings Intelligence: Before And After Each Report", null, "earnc")}${lazyFold("Full Earnings Calendar", null, "earn")}`;
     wireOpen(main); enableSort(main); wireLazy(main, { earnc: viewEarnC, earn: viewEarnings }); return;
   }
-  const [d, ov, RL] = await Promise.all([load("/api/board"), load("/api/overview"), load("/api/releases").catch(() => null)]);
-  const M = d.market, sec = ov.sectors || [], mx = Math.max(1, ...sec.map((x) => Math.abs(x.rel20)));
-  main.innerHTML = head + `<p class="vl-text p3-verdict">${esc(ov.verdict.text)}</p>
-    ${releaseHtml(RL)}
-    ${stripHtml(d)}
-    <div class="m3-two">
-      <section><h2 class="h3s">Sectors vs SPY, 20 Days</h2><div class="secbars">${sec.map((x) => `<div class="sb"><span class="sb-n">${esc(x.sector)}</span>
-        <div class="sb-track"><span class="sb-mid"></span><span class="sb-fill ${x.rel20 >= 0 ? "pos" : "neg"}" style="${x.rel20 >= 0 ? "left:50%" : "right:50%"};width:${(Math.abs(x.rel20) / mx * 50).toFixed(1)}%"></span></div>
-        <span class="num sb-v">${x.rel20 > 0 ? "+" : ""}${x.rel20.toFixed(1)}</span></div>`).join("")}</div></section>
-      <section><h2 class="h3s">Levels That Matter</h2><ul class="lv3">${(ov.gates || []).map((g) => `<li><b>${esc(g.ticker)}</b><span>${esc(g.name)}</span><span class="num">${money2(g.level)}</span>
-        <span class="num faint">${g.gap_pct > 0 ? "+" : ""}${g.gap_pct}%</span></li>`).join("")}</ul>
-        <h2 class="h3s">Coming Up</h2><ol class="tl2">${(ov.next || []).map((e) => `<li class="tl2-${esc(e.kind)}"><span class="tl2-when">${esc(fmtDay(e.date))}${e.time ? `, ${esc(e.time)}` : ""}</span><b>${esc(e.what)}</b></li>`).join("")}</ol></section>
-    </div>
-    ${lazyFold("Market Intelligence: The Full Read", null, "ov")}${lazyFold("Market Detail: Heatmap, Rates And Sector Table", null, "md")}`;
-  wireOpen(main); wireLazy(main, { ov: viewOverview, md: viewMarket });
+  const [P, ov] = await Promise.all([load("/api/marketpage"), load("/api/overview")]);
+  const R = P.regime, B = P.breadth || {}, V = P.vix || {};
+  const RCLS = { RED: "bad", YELLOW: "warn", GREEN: "good", EXCEPTIONAL: "good" };
+  const secMax = Math.max(1, ...P.sectors.flatMap((x) => [Math.abs(x.rel20 || 0), Math.abs(x.rel60 || 0)]));
+  const bar = (v, cls) => `<span class="mk-bar ${cls} ${v >= 0 ? "pos" : "neg"}" style="${v >= 0 ? "left:50%" : "right:50%"};width:${(Math.abs(v) / secMax * 50).toFixed(1)}%"></span>`;
+  main.innerHTML = head + `<div class="h2">
+  ${P.verdict ? `<p class="h2-call mk-verdict">${esc(P.verdict)}</p>` : ""}
+  <div class="h2-two">
+    ${R ? `<section class="h2-panel mk-pad" aria-label="Market regime"><h2 class="h2-eb">Market regime · ${esc(fmtDay(R.date))}</h2>
+      <p class="mk-big">${h2Pill(R.state[0] + R.state.slice(1).toLowerCase(), RCLS[R.state])} <b>${R.score} of ${R.of} checks pass</b></p>
+      <ul class="mk-checks">${R.checks.map((c) => `<li class="${c.ok ? "ok" : c.ok === false ? "no" : ""}"><span aria-hidden="true">${c.ok ? "✓" : c.ok === false ? "✗" : "?"}</span> ${esc(c.text)}</li>`).join("")}</ul>
+      <p class="h2-src">${esc(R.state)} means ${esc(R.means)}. Long-term backdrop: ${esc(R.investment_state)}. ${esc(R.status_note)}</p></section>` : ""}
+    <section class="h2-panel mk-pad" aria-label="Breadth and fear"><h2 class="h2-eb">Breadth and fear</h2>
+      <dl class="h2-rows mk-dl">
+        ${B.value != null ? `<div><dt>Tech above 50-day</dt><dd><b class="num">${B.value}%</b> ${esc(B.means || "")}<div class="h2-lbl">${esc(B.scope || "")}</div></dd></div>` : ""}
+        <div><dt>Sectors above 50-day</dt><dd><b class="num">${B.sectors_above_50d} of ${B.sectors}</b> <span class="h2-lbl">Sector funds (S&amp;P 500 sectors)</span></dd></div>
+        ${V.value != null ? `<div><dt>VIX</dt><dd><b class="num">${V.value.toFixed(1)}</b> ${esc(V.label || "")}, above ${V.pct}% of the past year <span class="h2-lbl">${esc(V.source || "")}, ${esc(fmtDay(V.date))}</span></dd></div>` : ""}
+      </dl></section>
+  </div>
+  <section aria-label="Indices"><div class="h2-sh"><h2 class="h2-eb">Indices</h2><span class="h2-src">Daily closes. The Dow and Russell 2000 are shown through their ETFs.</span></div>
+    <div class="h2-kpis mk-idx">${P.indices.map((i) => `<div class="h2-kpi"><span class="h2-k">${esc(i.name)} <span class="faint">(${esc(i.note)})</span></span><span class="h2-v num">${i.close.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+      <span class="h2-d ${dirCls(i.chg)}">${pct(i.chg)} on ${esc(fmtDay(i.date))}${i.chg20 != null ? ` · ${pct(i.chg20, 1)} in 20 days` : ""}</span><span class="h2-d">${esc(i.vs_averages ? i.vs_averages + " averages (50 / 200-day)" : "")}</span></div>`).join("")}</div></section>
+  <div class="h2-two">
+    <section class="h2-panel mk-pad" aria-label="Sector rotation"><h2 class="h2-eb">Sector rotation vs SPY</h2>
+      <p class="mk-legend"><span><i class="mk-k mk-20"></i>20 days</span><span><i class="mk-k mk-60"></i>60 days</span><span class="faint">Points of return beyond SPY; strongest first.</span></p>
+      <div class="mk-secs" role="img" aria-label="Sector returns versus SPY over 20 and 60 days">${P.sectors.map((x) => `<div class="mk-sec" title="${esc(x.name)}: ${x.rel20 > 0 ? "+" : ""}${x.rel20} over 20 days, ${x.rel60 > 0 ? "+" : ""}${x.rel60} over 60 days vs SPY">
+        <span class="mk-sn">${esc(x.name)} <span class="faint">${esc(x.t)}</span></span>
+        <span class="mk-track"><span class="mk-mid"></span>${bar(x.rel20, "mk-20")}${x.rel60 != null ? bar(x.rel60, "mk-60") : ""}</span>
+        <span class="num mk-sv ${dirCls(x.rel20)}">${x.rel20 > 0 ? "+" : ""}${x.rel20.toFixed(1)}</span></div>`).join("")}</div></section>
+    <section class="h2-panel mk-pad" aria-label="Rates and inflation"><h2 class="h2-eb">Rates and inflation</h2>
+      <table class="mk-macro"><tbody>${P.macro.filter((m) => m.id !== "VIXCLS").map((m) => `<tr><th scope="row">${esc(m.name)}</th><td class="num">${esc(m.value)}</td><td class="h2-lbl">${esc(m.asof_label)}</td></tr>`).join("")}</tbody></table>
+      <p class="h2-src">FRED (St. Louis Fed). Treasury yields post one to three days late; inflation is monthly.</p></section>
+  </div>
+  <section aria-label="Economic calendar"><div class="h2-sh"><h2 class="h2-eb">Economic calendar</h2><a href="#/market?tab=earnings">Earnings →</a></div>
+    <div class="sp-acc">${P.calendar.map((e) => `<div class="sp-item"><button class="sp-btn mk-ev" aria-expanded="false"><span class="mk-when">${esc(e.when)}</span><span class="sp-t">${esc(e.title)} ${h2Pill(e.level, H2_LVL[e.level])}</span>
+      <span class="sp-pv">${esc([e.impact, e.tickers.length ? "Moves " + e.tickers.join(", ") : ""].filter(Boolean).join(" · "))}</span><span class="sp-chev" aria-hidden="true">›</span></button>
+      <div class="sp-body"><div><div class="sp-in">${e.note ? `<p><b>${esc(e.note.headline)}</b></p>${e.note.bottom_line ? `<p>${esc(e.note.bottom_line)}</p>` : ""}
+        ${(e.note.plans || []).length ? `<dl class="id-dl">${e.note.plans.map((p) => `<div><dt>${esc(p.case === "in-line" ? "In line" : (p.case || "")[0].toUpperCase() + (p.case || "").slice(1))}</dt><dd>${p.if ? `<b>If</b> ${esc(p.if)}. ` : ""}${esc(p.then || "")}</dd></div>`).join("")}</dl>` : ""}`
+        : `<p class="faint">${esc(e.impact || "No release-day note for this event.")}</p>`}</div></div></div></div>`).join("") || `<p class="h2-empty">Nothing scheduled in the next 30 days.</p>`}</div></section>
+  <section class="h2-panel mk-pad" aria-label="Levels that matter"><h2 class="h2-eb">Levels that matter</h2><ul class="lv3">${(ov.gates || []).map((g) => `<li><b>${esc(g.ticker)}</b><span>${esc(g.name)}</span><span class="num">${money2(g.level)}</span>
+    <span class="num faint">${g.gap_pct > 0 ? "+" : ""}${g.gap_pct}%</span></li>`).join("")}</ul></section>
+  </div>
+  ${lazyFold("Market Intelligence: The Full Read", null, "ov")}${lazyFold("Market Detail: Heatmap, Rates And Sector Table", null, "md")}
+  ${lazyFold("Analyst Notes, Tomorrow, Tonight's Verdict, What To Watch And Headlines", null, "moved")}`;
+  wireSpAcc(main, {}); wireOpen(main); wireLazy(main, { ov: viewOverview, md: viewMarket, moved: viewHomeMoved });
 }
+
 function stripHtml(d) {
   const M = d.market;
   const trendBadge = (t) => vBadge(t ? t[0].toUpperCase() + t.slice(1) : "—", t === "uptrend" ? "Enter" : t === "downtrend" ? "Avoid" : "Wait");
@@ -2311,9 +2616,11 @@ async function viewToday(main) {
     return;
   }
   const g = P.page, M = g.market || {}, px = P.prices || {};
+  const MCALL = await load("/api/morning").catch(() => null);          // the full morning call lives here (Home shows one line)
   const t1 = g.stocks.filter((s) => s.tier === 1), t2 = g.stocks.filter((s) => s.tier === 2), t3 = g.stocks.filter((s) => s.tier === 3);
   main.innerHTML = `<div class="head"><div><h1>${title[want]} · ${esc(new Date(P.session_date + "T12:00:00").toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }))}</h1>
       <p class="sub">${esc(d.label)}. Written ${esc(new Date(P.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))}. Tap a stock for its full page.</p></div>${toggle}</div>
+    ${morningCallHtml(MCALL)}
     <section class="td-market card" aria-label="Market">
       ${M.day_type ? `<p class="td-daytype">${esc(M.day_type)}</p>` : ""}
       <p class="td-main">${esc(M.headline)}</p>
