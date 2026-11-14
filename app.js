@@ -2028,13 +2028,66 @@ function stripHtml(d) {
 }
 
 /* ------------------------------------------------------------------ Record: how the calls did */
+/* Record (UX overhaul 2026-11-14, fr/recordpage.py): KPIs, then pending and graded calls in separate sections with
+   date / ticker / analyst / type / outcome filters. Pending calls never count as wins or losses. */
+const RC = { from: "", to: "", t: "all", a: "all", ty: "all", o: "all", np: 15, ng: 15 };
 async function viewRecord(main) {
+  main.innerHTML = skel();
+  const D = await load("/api/recordpage");
+  const K = D.kpis, OC = { right: "good", wrong: "bad", pending: "neutral", not_triggered: "neutral", no_bet: "neutral", invalidated: "warn" };
+  const OL = { right: "Right", wrong: "Wrong", pending: "Pending", not_triggered: "Not triggered", no_bet: "No bet", invalidated: "Invalidated" };
+  const uniq = (k) => [...new Set(D.calls.map((x) => x[k]))].sort();
+  const opt = (id, label, vals, cur) => `<label>${label} <select id="${id}"><option value="all">All</option>${vals.map((v) => `<option value="${esc(v)}"${cur === v ? " selected" : ""}>${esc(OL[v] || v)}</option>`).join("")}</select></label>`;
+  const kpi = (k, v, d) => `<div class="h2-kpi"><span class="h2-k">${esc(k)}</span><span class="h2-v num">${esc(v)}</span><span class="h2-d">${esc(d || "")}</span></div>`;
+  const gtable = (title, G) => `<section class="h2-panel mk-pad"><h2 class="h2-eb">${esc(title)}</h2><table class="mk-macro rc-g"><thead><tr><th>Name</th><th class="num">Logged</th><th class="num">Graded</th><th class="num">Pending</th><th>Result</th></tr></thead>
+    <tbody>${G.map((g) => `<tr><th scope="row">${esc(g.name)}</th><td class="num">${g.total}</td><td class="num">${g.graded}</td><td class="num">${g.pending}</td>
+      <td>${g.judged ? `${g.hit_rate}% right${g.avg_excess != null ? `, ${g.avg_excess > 0 ? "+" : ""}${g.avg_excess} pts` : ""}` : `<span class="faint">${esc(g.verdict)}</span>`}</td></tr>`).join("")}</tbody></table></section>`;
+  main.innerHTML = pageHead("Record", "Every call, written before its window and never edited. Pending calls are not results.") + `<div class="h2">
+    <section class="h2-kpis rc-kpis" aria-label="Record at a glance">
+      ${kpi("Calls logged", K.total, "all sources")}${kpi("Graded", K.graded, `${K.other} not triggered or no bet`)}${kpi("Pending", K.pending, "not counted")}
+      ${kpi("Hit rate", K.judged && K.hit_rate != null ? K.hit_rate + "%" : "—", K.judged ? "vs each call's benchmark" : `too few to judge (${K.graded} of ${D.min_n} graded)`)}
+      ${kpi("Average result", K.judged && K.avg_excess != null ? (K.avg_excess > 0 ? "+" : "") + K.avg_excess + " pts" : "—", K.judged ? `in the call's direction, ${K.measured} measured` : "shown once 30 are graded")}
+    </section>
+    <div class="h2-two">${gtable("By analyst", D.by_analyst)}${gtable("By type of call", D.by_type)}</div>
+    <p class="h2-src">${esc(D.rule)} Each group shows "too few to judge" until ${D.min_n} of its calls are graded.</p>
+    <div class="rp-filters">
+      <label>From <input type="date" id="rc-from" value="${esc(RC.from)}"></label><label>To <input type="date" id="rc-to" value="${esc(RC.to)}"></label>
+      ${opt("rc-t", "Ticker", uniq("t"), RC.t)}${opt("rc-a", "Analyst", uniq("analyst"), RC.a)}${opt("rc-ty", "Type", uniq("type"), RC.ty)}${opt("rc-o", "Outcome", uniq("outcome"), RC.o)}
+    </div>
+    <section aria-label="Graded calls"><div class="h2-sh"><h2 class="h2-eb" id="rc-gh"></h2></div><div class="h2-panel" id="rc-g"></div><div id="rc-gm" class="rp-morebox"></div></section>
+    <section aria-label="Pending calls"><div class="h2-sh"><h2 class="h2-eb" id="rc-ph"></h2><span class="h2-src">Not counted until graded.</span></div><div class="h2-panel" id="rc-p"></div><div id="rc-pm" class="rp-morebox"></div></section>
+  </div>
+  ${lazyFold("Scoreboard, Source Comparison And Committee Calls (Previous Layout)", null, "old")}${lazyFold("Full Track Record: Synthesis, Backtests And Forecast Scoring", null, "track")}${lazyFold("Decision Log Detail", null, "log")}`;
+  const rowsHtml = (xs) => `<table class="st-tbl rc-tbl"><thead><tr><th>Date</th><th>Stock</th><th>Analyst</th><th>Call</th><th>Window</th><th>Outcome</th><th class="num">Result</th></tr></thead><tbody>
+    ${xs.map((x) => `<tr${x.t !== "Market" ? ` data-open="${esc(x.t)}" tabindex="0"` : ""}><td>${esc(fmtDay(x.date))}</td><td><b class="tk">${esc(x.t)}</b></td><td>${esc(x.analyst)}</td><td>${esc(x.type)}${x.late ? ` <span class="faint" title="Written after the 09:30 open; graded from the price when it was written">(late)</span>` : ""}</td>
+      <td>${esc(x.horizon)}${x.benchmark ? ` <span class="faint">vs ${esc(x.benchmark)}</span>` : ""}</td><td>${h2Pill(OL[x.outcome] || x.outcome, OC[x.outcome])}</td>
+      <td class="num ${x.excess != null ? dirCls(x.excess) : ""}">${x.excess != null ? (x.excess > 0 ? "+" : "") + x.excess + " pts" : "—"}</td></tr>`).join("")}</tbody></table>
+    <div class="st-cards">${xs.map((x) => `<div class="st-card rc-card"><span class="st-c1"><b class="tk">${esc(x.t)}</b>${h2Pill(OL[x.outcome] || x.outcome, OC[x.outcome])}</span>
+      <span>${esc(x.analyst)}: ${esc(x.type)} <span class="faint">(${esc(fmtDay(x.date))}, ${esc(x.horizon)})</span></span>${x.excess != null ? `<span class="num ${dirCls(x.excess)}">${x.excess > 0 ? "+" : ""}${x.excess} pts</span>` : ""}</div>`).join("")}</div>`;
+  const draw = () => {
+    const xs = D.calls.filter((x) => (!RC.from || x.date >= RC.from) && (!RC.to || x.date <= RC.to) && (RC.t === "all" || x.t === RC.t) && (RC.a === "all" || x.analyst === RC.a)
+      && (RC.ty === "all" || x.type === RC.ty) && (RC.o === "all" || x.outcome === RC.o));
+    const G = xs.filter((x) => x.outcome !== "pending"), P = xs.filter((x) => x.outcome === "pending");
+    main.querySelector("#rc-gh").textContent = `Graded and closed · ${G.length}`; main.querySelector("#rc-ph").textContent = `Pending · ${P.length}`;
+    main.querySelector("#rc-g").innerHTML = G.length ? rowsHtml(G.slice(0, RC.ng)) : `<p class="h2-empty">No graded calls match.</p>`;
+    main.querySelector("#rc-p").innerHTML = P.length ? rowsHtml(P.slice(0, RC.np)) : `<p class="h2-empty">No pending calls match.</p>`;
+    const more = (id, n, k) => { main.querySelector(id).innerHTML = n > RC[k] ? `<button class="st-chip rp-more">Show ${Math.min(15, n - RC[k])} more (${n - RC[k]} left)</button>` : "";
+      const b = main.querySelector(id + " button"); if (b) b.addEventListener("click", () => { RC[k] += 15; draw(); }); };
+    more("#rc-gm", G.length, "ng"); more("#rc-pm", P.length, "np");
+    wireOpen(main.querySelector("#rc-g")); wireOpen(main.querySelector("#rc-p"));
+  };
+  [["#rc-from", "from"], ["#rc-to", "to"], ["#rc-t", "t"], ["#rc-a", "a"], ["#rc-ty", "ty"], ["#rc-o", "o"]].forEach(([id, k]) =>
+    main.querySelector(id).addEventListener("change", (e) => { RC[k] = e.target.value; RC.np = RC.ng = 15; draw(); }));
+  draw();
+  wireLazy(main, { old: viewRecordLegacy, track: viewTrack, log: viewLog });
+}
+async function viewRecordLegacy(main) {
   main.innerHTML = skel();
   const [sy, k, SB] = await Promise.all([load("/api/synthesis").catch(() => null), load("/api/committee"), load("/api/scoreboard").catch(() => null)]);
   const C = (sy || {}).comparison || { rows: [] }, log = k.log || [];
   main.innerHTML = pageHead("Record", "How each source's calls have done against the benchmark. Calls are written before their window and never edited.") +
     (SB ? `<h2 class="h3s">Scoreboard</h2><div class="tbl-wrap"><table class="vtable"><thead><tr><th>Kind of call</th><th class="num">Logged</th><th class="num">Graded</th><th class="num">Right</th><th class="num">Vs Benchmark</th><th>Verdict</th></tr></thead><tbody>
-      ${SB.rows.map((b) => `<tr><td><b>${esc(b.name)}</b></td><td class="num">${b.logged}</td><td class="num">${b.graded}</td><td class="num">${b.hit_rate != null ? b.hit_rate + "%" : "—"}</td>
+      ${SB.rows.map((b) => `<tr><td><b>${esc(b.name)}</b>${b.note ? `<div class="faint small">${esc(b.note)}</div>` : ""}</td><td class="num">${b.logged}</td><td class="num">${b.graded}</td><td class="num">${b.hit_rate != null ? b.hit_rate + "%" : "—"}</td>
         <td class="num">${b.edge != null ? (b.edge > 0 ? "+" : "") + b.edge.toFixed(2) + " pts" : "—"}</td><td>${esc(b.verdict)}</td></tr>`).join("")}</tbody></table></div>
       <p class="faint one">Right = beat the benchmark in the call's direction (QQQ for stocks, SPY for QQQ, cash for the market). Judged from ${SB.min_n} graded calls; fewer prove nothing.</p>` : "") +
     `<div class="rec3">${C.rows.map((r) => `<div class="sct ${r.matured ? (r.hit_rate_pct >= 50 ? "s-good" : "s-bad") : "s-none"}"><span>${esc(r.source)}</span><b class="num">${r.hit_rate_pct != null ? r.hit_rate_pct + "%" : "—"}</b>
@@ -2607,7 +2660,7 @@ async function viewToday(main) {
   const d = await api("/api/today");
   const want = (location.hash.split("?")[1] || "").includes("recap") ? "recap" : (location.hash.split("?")[1] || "").includes("premarket") ? "premarket" : d.show;
   const P = d[want];
-  const title = { premarket: "Before the open", recap: "After the close" };
+  const title = { premarket: d.premarket && d.premarket.late ? "Late morning call" : "Before the open", recap: "After the close" };
   const toggle = `<div class="td-toggle" role="tablist">${["premarket", "recap"].map((k) => `<a role="tab" href="#/today?${k}" class="${k === want ? "on" : ""}" aria-selected="${k === want}">${title[k]}${d[k] ? ` <span class="faint">${esc(fmtDay(d[k].session_date))}</span>` : ""}</a>`).join("")}</div>`;
   if (!P || !P.page) {
     main.innerHTML = `<div class="head"><div><h1>${title[want]}</h1></div>${toggle}</div>

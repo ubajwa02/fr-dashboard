@@ -114,7 +114,7 @@
       return head("Record", "Are the calls any good?") + `
         <section class="ph-group ph-stat"><small>Verdict so far</small><p class="ph-big">${h(R.verdict)}</p><p>${h(R.text)}</p></section>
         ${(R.board || []).length ? `<h2 class="ph-gl"><span>Scoreboard</span><span class="ph-count">vs QQQ</span></h2>
-          <div class="ph-group">${R.board.map((b) => `<div class="ph-ev ph-static"><div class="ph-et"><div>${h(b.name)}</div><p>${h(b.verdict)}${b.logged ? `; ${b.logged} logged` : ""}</p></div>
+          <div class="ph-group">${R.board.map((b) => `<div class="ph-ev ph-static"><div class="ph-et"><div>${h(b.name)}</div><p>${h(b.verdict)}${b.logged ? `; ${b.logged} logged` : ""}${b.note ? `. ${h(b.note)}` : ""}</p></div>
             <span class="ph-pill p-${!b.judged ? "none" : b.hit_rate >= 50 ? "buy" : "avoid"}">${b.hit_rate != null ? b.hit_rate + "%" : "—"}</span></div>`).join("")}</div>` : ""}
         <h2 class="ph-gl"><span>Recent calls</span><span class="ph-count">${R.recorded} logged</span></h2>
         <div class="ph-group">${R.calls.map((c) => `<div class="ph-ev ph-static"><div class="ph-et"><div>${h(c.t)}: ${h(c.call)}</div><p>${h(c.by)}, logged ${h(c.logged)}, graded after ${c.days} trading days</p></div>
