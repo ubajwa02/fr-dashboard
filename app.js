@@ -1033,7 +1033,7 @@ async function openStock(t) {
       return;
     }
     pageOf = d.page && !d.page.error ? d.page : null;
-    c = c || d.card; kn = d.keynums; mentor = d.mentor; scen = d.scenarios; extra = { levels: d.levels, moves: d.moves_with, challenge: d.challenge, oc: d.options_check, thesis: d.thesis, daily: d.daily, committee: d.committee, profile: d.profile, monitor: d.monitor, scorecard: d.scorecard, qa: d.qa, analyst: d.analyst };
+    c = c || d.card; kn = d.keynums; mentor = d.mentor; scen = d.scenarios; extra = { ext: d.external_review, levels: d.levels, moves: d.moves_with, challenge: d.challenge, oc: d.options_check, thesis: d.thesis, daily: d.daily, committee: d.committee, profile: d.profile, monitor: d.monitor, scorecard: d.scorecard, qa: d.qa, analyst: d.analyst };
     if (d.scorecard && d.scorecard.range) (state.scorecards = state.scorecards || {})[t] = d.scorecard.range;
     try { state.board = state.board || await load("/api/board"); } catch (e) { state.board = null; }
   } catch (e) {
@@ -1089,6 +1089,7 @@ async function openStock(t) {
     <h3 class="sp-h">Options check</h3>${optionsCheckHtml(extra.oc)}`)}
     ${spItem("Scenarios and the case against", PV.scenarios, `${scenariosHtml(scen)}
     <h3 class="sp-h">Challenge: the case against</h3><p class="sp-explain">Challenge argues against the current call, so its weak points are visible.</p>${challengeHtml(extra.challenge)}`)}
+    ${extra.ext ? spItem("External review (OpenAI)", extPreview(extra.ext), externalReviewHtml(extra.ext)) : ""}
     ${spItem("Macro exposure and key levels", PV.macro, `${tiesHtml(extra)}`)}
     ${spItem("News and catalysts", PV.news, `${mattersHtml(c.impact)}${briefSlot}
     ${(c.impact && c.impact.rest.length) ? `<div class="sec"><h3>Smaller findings</h3><ul class="impact">${c.impact.rest.map((i) => `<li title="What would change this: ${esc(i.change)}">${itemHead(i)} ${esc(i.so_what)}</li>`).join("")}</ul></div>` : ""}
@@ -1235,6 +1236,41 @@ function spTop(P) {
     <section class="sp-panel" aria-label="Key facts"><dl class="sp-facts">${(T.facts || []).map((f) => `<div><dt>${esc(f.k)}</dt><dd>${esc(f.v)}</dd></div>`).join("")}</dl></section></div>
   ${spLadder(P.levels || {})}
   <section class="sp-cases" aria-label="Bull and bear">${list("Bull case", "good", C.bull)}${list("Bear case", "bad", C.bear)}${list("Main risks", "warn", C.risks)}${list("What would change the call", "neutral", C.change)}</section>`;
+}
+
+/* External review (fr/openai_review.py, 2026-11-14): an independent OpenAI view written WITHOUT seeing the committee,
+   then its challenge of the committee's resolved call, and the committee's answer. AI opinion, not validated; sentences
+   with numbers that weren't in its data are removed and only counted here. The public site shows one line only. */
+const EXT_ST = { agree: ["Agrees", "good"], challenge: ["Challenges", "warn"], reassess: ["Asks to reassess", "bad"] };
+function extPreview(X) {
+  if (X.public) return X.public.line || "";
+  const I = X.independent || {}, C = X.challenge || {};
+  return [I.action ? `${I.action[0].toUpperCase() + I.action.slice(1)}, ${I.conviction} conviction` : "", C.stance ? (EXT_ST[C.stance] || [C.stance])[0] + " the committee" : ""].filter(Boolean).join(" · ");
+}
+function externalReviewHtml(X) {
+  if (X.public) return `<p>${esc(X.public.line)}</p><p class="sp-explain">${esc(X.public.label)}. The full review stays on the owner's Mac.</p>`;
+  const I = X.independent, C = X.challenge, ul = (xs) => (xs && xs.length ? `<ul>${xs.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="faint">None given.</p>`);
+  const cap = (x) => (x ? x[0].toUpperCase() + x.slice(1) : "—");
+  let h = `<p class="sp-explain">${esc(X.label)}. Written without seeing the committee's call, then asked to challenge it. Sentences with numbers that weren't in its data are removed.</p>`;
+  if (I) h += `<h3 class="sp-h">Independent view · ${esc(fmtDay(I.asof))} <span class="faint">(${esc(I.level)}: ${esc((I.reasons || []).join("; "))})</span></h3>
+    <p>${h2Pill(cap(I.action), I.action === "buy" || I.action === "add" ? "good" : I.action === "hold" ? "warn" : "bad")} ${esc(cap(I.sentiment))}, ${esc(I.conviction)} conviction (a judgment, not a probability), ${I.horizon === "months" ? "months" : "days to weeks"}.</p>
+    <p>${esc(I.thesis || "")}</p>
+    <div class="sp-cases ext-two"><div class="sp-panel sp-case"><span class="h2-pill h2-good">Bull</span>${ul(I.bull)}</div><div class="sp-panel sp-case"><span class="h2-pill h2-bad">Bear</span>${ul(I.bear)}</div></div>
+    <dl class="id-dl">${[["Valuation view", I.valuation_view], ["Catalysts", (I.catalysts || []).map((c) => `${c.what}${c.when ? ` (${c.when})` : ""}`).join("; ")],
+      ["Risks", (I.risks || []).join("; ")], ["Levels", (I.levels || []).map((l) => `$${l.price}: ${l.meaning}`).join("; ")], ["Conflicts in the data", (I.data_conflicts || []).join("; ")],
+      ["Missing information", (I.missing_info || []).join("; ")], ["Evidence", (I.evidence || []).map((e) => `${e.field}: ${e.value}`).join("; ")]]
+      .filter((kv) => kv[1]).map((kv) => `<div><dt>${esc(kv[0])}</dt><dd>${esc(kv[1])}</dd></div>`).join("")}</dl>
+    ${I.unverified_count ? `<p class="faint">${I.unverified_count} sentence${I.unverified_count === 1 ? "" : "s"} removed: numbers not in its data.</p>` : ""}`;
+  if (X.since_last) h += `<p class="faint">Since the last review (${esc(fmtDay((X.since_last.before_at || "").slice(0, 10)))}): ${esc(cap(X.since_last.before.action))} to ${esc(cap(X.since_last.now.action))}, conviction ${esc(X.since_last.before.conviction)} to ${esc(X.since_last.now.conviction)}.</p>`;
+  if (C) h += `<h3 class="sp-h">On the committee's call</h3>
+    <p>${h2Pill((EXT_ST[C.stance] || [C.stance])[0], (EXT_ST[C.stance] || [0, "neutral"])[1])} Committee: long-term ${esc((C.committee || {}).longterm || "—")}, swing ${esc((C.committee || {}).swing || "—")}. Thesis ${esc(C.thesis_change || "unchanged")} today.</p>
+    <p>${esc(C.summary || "")}</p>
+    ${(C.points || []).length ? `<dl class="id-dl">${C.points.map((p) => `<div><dt>${esc(p.claim)}</dt><dd>${esc(p.why)}<br><span class="faint">Committee wrong if: ${esc(p.committee_wrong_if)} · Review wrong if: ${esc(p.review_wrong_if)}</span></dd></div>`).join("")}</dl>` : ""}
+    ${(C.claim_checks || []).length ? `<p><b>Analyst claims checked:</b> ${C.claim_checks.map((x) => `${esc(x.claim)} (${esc(String(x.verdict).replace(/_/g, " "))})`).join("; ")}</p>` : ""}
+    ${(C.duplication_or_contradiction || []).length ? `<p><b>Duplication or contradictions:</b> ${esc(C.duplication_or_contradiction.join("; "))}</p>` : ""}
+    ${C.answer ? `<p><b>Committee's answer (${esc(fmtDay((C.answer.created_at || "").slice(0, 10)))}):</b> ${esc(cap(C.answer.answer))}: ${esc(C.answer.reason)}</p>` : `<p class="faint">The evening report answers this at its next run.</p>`}`;
+  if ((X.history || []).length) h += `<h3 class="sp-h">History</h3><table class="mk-macro"><tbody>${X.history.map((r) => `<tr><th scope="row">${esc(fmtDay((r.at || "").slice(0, 10)))} ${esc(r.step)}</th><td>${esc(r.level)}</td><td>${esc(r.status === "ok" ? cap(r.action || r.stance || "") : String(r.status).replace(/_/g, " "))}</td><td class="h2-lbl">${esc((r.reasons || []).join("; "))}</td></tr>`).join("")}</tbody></table>`;
+  return h;
 }
 
 function openEarnings(r) {

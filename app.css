@@ -1397,3 +1397,4 @@ button.h2-pill { cursor: pointer; font-family: inherit; }
 .rc-g th, .rc-g td { padding: 7px 8px 7px 0; } .rc-g thead th { color: var(--muted); font-size: 13px; }
 .rc-card { cursor: default; }
 @media (max-width: 760px) { .rc-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rc-kpis .h2-kpi:nth-child(3n) { border-right: 1px solid var(--line); } .rc-kpis .h2-kpi:nth-child(2n) { border-right: 0; } }
+.ext-two { margin: 10px 0; }
