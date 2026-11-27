@@ -1,6 +1,6 @@
 # Public manifest: Fundamentalist snapshot
 
-Read-only snapshot, generated 2026-11-27 05:35 UTC. Research, not advice.
+Read-only snapshot, generated 2026-11-27 11:34 UTC. Research, not advice.
 
 ## What is in this site
 
