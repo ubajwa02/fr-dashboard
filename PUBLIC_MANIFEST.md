@@ -1,6 +1,6 @@
 # Public manifest: Fundamentalist snapshot
 
-Read-only snapshot, generated 2026-11-27 11:34 UTC. Research, not advice.
+Read-only snapshot, generated 2026-11-27 13:15 UTC. Research, not advice.
 
 ## What is in this site
 
@@ -9,11 +9,11 @@ Read-only snapshot, generated 2026-11-27 11:34 UTC. Research, not advice.
 | `.nojekyll` | 1 | 0 KB |
 | `app.css` | 1 | 128 KB |
 | `app.js` | 1 | 292 KB |
-| `data/` | 29 | 3,002 KB |
+| `data/` | 29 | 2,984 KB |
 | `data/brief/` | 50 | 259 KB |
 | `data/prices/` | 50 | 1,680 KB |
-| `data/report/` | 27 | 443 KB |
-| `data/reportitem/` | 198 | 1,735 KB |
+| `data/report/` | 28 | 456 KB |
+| `data/reportitem/` | 200 | 1,760 KB |
 | `data/stock/` | 50 | 1,896 KB |
 | `data/ta/` | 13 | 3,276 KB |
 | `fonts/` | 6 | 207 KB |
@@ -22,7 +22,7 @@ Read-only snapshot, generated 2026-11-27 11:34 UTC. Research, not advice.
 | `manifest.webmanifest` | 1 | 1 KB |
 | `phone.css` | 1 | 14 KB |
 | `phone.js` | 1 | 19 KB |
-| **Total** | **434** | **12.7 MB** |
+| **Total** | **437** | **12.7 MB** |
 
 - `index.html`, `app.js`, `app.css`: the dashboard page, in read-only mode.
 - `data/*.json`: My stocks, Earnings, Market, Opportunities, Oversold, Track record and the ticker list.
